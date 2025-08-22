@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오늘의 뉴스레터</title>
+</head>
+<body style="font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; margin: 0; padding: 0; background-color: #f6f8fa;">
+
+    <div style="width: 100%; max-width: 680px; margin: 20px auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 6px;">
+
+        <div>
+            <img src="https://images.pexels.com/photos/270404/pexels-photo-270404.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
+                 alt="News Banner"
+                 style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
+        </div>
+
+        <div style="padding: 24px; text-align: center; border-bottom: 1px solid #e1e4e8;">
+            <h1 style="margin: 0; font-size: 24px; color: #24292e;">오늘의 AI/주식/머신러닝 뉴스</h1>
+            <p style="margin: 5px 0 0; color: #586069;">{{ today_date }}</p>
+        </div>
+
+        {% if ai_briefing %}
+        <div style="padding: 24px; border-bottom: 1px solid #e1e4e8; background-color: #f6f8fa;">
+            <h2 style="margin-top: 0; font-size: 16px; color: #24292e;">오늘의 브리핑 🤖</h2>
+            <div style="color: #444c56; line-height: 1.6; font-size: 14px;">
+                {{ ai_briefing | safe }}
+            </div>
+        </div>
+        {% endif %}
+        <div style="padding: 24px;">
+
+            {% for news in news_list %}
+            <div style="margin-bottom: 32px; padding-bottom: 32px; border-bottom: 1px solid #e1e4e8;">
+                {% if news.image_url %}
+                <div style="margin-bottom: 12px; text-align: center;">
+                    <img src="{{ news.image_url }}" alt="Article Thumbnail" style="max-width: 100%; height: auto; border-radius: 6px; display: block; margin-left: auto; margin-right: auto;">
+                </div>
+                {% endif %}
+                <h3 style="margin: 0 0 8px 0; font-size: 18px;">
+                    <a href="{{ news.link }}" style="color: #0366d6; text-decoration: none; font-weight: 600;">{{ news.title }}</a>
+                </h3>
+                <p style="margin: 0; color: #444c56; line-height: 1.6; font-size: 14px;">
+                    {{ news.summary }}
+                </p>
+            </div>
+            {% endfor %}
+            </div>
+
+        <div style="text-align: center; padding: 24px; font-size: 12px; color: #586069; background-color: #f6f8fa; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;">
+            <p style="margin: 0;">YLP화물 https://www.tmapfreight.com/</p>
+        </div>
+
+    </div>
+
+</body>
+</html>
