@@ -10,13 +10,13 @@
     <div style="width: 100%; max-width: 680px; margin: 20px auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 6px;">
 
         <div>
-           img src="https://i.imgur.com/gY9g5ga.jpeg"
+            <img src="https://i.imgur.com/gY9g5ga.jpeg"
                  alt="Logistics News Banner"
                  style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
         </div>
 
         <div style="padding: 24px; text-align: center; border-bottom: 1px solid #e1e4e8;">
-            <h1 style="margin: 0; font-size: 24px; color: #24292e;">오늘의 뉴스</h1>
+            <h1 style="margin: 0; font-size: 24px; color: #24292e;">오늘의 화물/물류 뉴스</h1>
             <p style="margin: 5px 0 0; color: #586069;">{{ today_date }}</p>
         </div>
 
@@ -28,8 +28,8 @@
             </div>
         </div>
         {% endif %}
+        
         <div style="padding: 24px;">
-
             {% for news in news_list %}
             <div style="margin-bottom: 32px; padding-bottom: 32px; border-bottom: 1px solid #e1e4e8;">
                 {% if news.image_url %}
@@ -45,7 +45,7 @@
                 </p>
             </div>
             {% endfor %}
-            </div>
+        </div>
 
         <div style="text-align: center; padding: 24px; font-size: 12px; color: #586069; background-color: #f6f8fa; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;">
             <p style="margin: 0;">YLP화물 https://www.tmapfreight.com/</p>
@@ -55,5 +55,3 @@
 
 </body>
 </html>
-
-
