@@ -1,0 +1,50 @@
+name: Send Daily Logistics Newsletter
+
+on:
+  schedule:
+    # 한국 시간(KST)으로 매일 아침 8시에 실행 (UTC 기준 23시)
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install markdown feedparser google-api-python-client google-auth-httplib2 google-auth-oauthlib google-generativeai beautifulsoup4 Jinja2 requests lxml tzdata
+
+    - name: Create credential files from secrets
+      run: |
+        echo "${{ secrets.GMAIL_CREDENTIALS }}" > credentials.json
+        echo "${{ secrets.GMAIL_TOKEN }}" | base64 --decode > token.json
+
+    - name: Run script
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        RECIPIENT_LIST: ${{ secrets.RECIPIENT_LIST }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      run: python news_collector.py
+
+    - name: Configure Git
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+    - name: Commit and push changes
+      run: |
+        git pull
+        git add sent_links_logistics.txt
+        git diff-index --quiet HEAD || (git commit -m "Update sent links history" && git push)
