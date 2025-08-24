@@ -1,0 +1,16 @@
+python-dotenv
+requests
+beautifulsoup4
+lxml
+jinja2
+Pillow
+pygooglenews
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+google-generativeai
+markdown
+newspaper3k
+selenium
+selenium-stealth
+webdriver-manager
