@@ -1,16 +1,12 @@
 # requirements.txt
 
-# 호환성 문제를 해결하기 위해 최신 버전을 먼저 명시합니다.
-feedparser==6.0.11
-
-# 나머지 라이브러리 목록
+# pygooglenews와 그로 인해 문제가 된 feedparser를 제거한 최종 버전
 python-dotenv
 requests
 beautifulsoup4
 lxml
 jinja2
 Pillow
-pygooglenews
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
