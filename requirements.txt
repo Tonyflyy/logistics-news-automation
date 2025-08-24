@@ -1,10 +1,12 @@
 # requirements.txt
 
-# pygooglenews와 그로 인해 문제가 된 feedparser를 제거한 최종 버전
+# newspaper3k와의 호환성을 위해 추가 기능([html_clean])을 명시
+lxml[html_clean]
+
+# 나머지 라이브러리 목록
 python-dotenv
 requests
 beautifulsoup4
-lxml
 jinja2
 Pillow
 google-api-python-client
