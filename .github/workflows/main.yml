@@ -24,7 +24,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install markdown feedparser google-api-python-client google-auth-httplib2 google-auth-oauthlib google-generativeai beautifulsoup4 Jinja2 requests lxml tzdata
+        python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
     - name: Create credential files from secrets
       run: |
