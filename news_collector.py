@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlparse
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
-from newspaper import Article
+
 # 서드파티 라이브러리
 import requests
 from requests.adapters import HTTPAdapter
@@ -20,10 +20,10 @@ from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
-#from pygooglenews import GoogleNews
+# from pygooglenews import GoogleNews # 이 줄이 삭제되었습니다.
 from zoneinfo import ZoneInfo
 
-# ⬇️⬇️⬇️ Selenium의 '지능적 기다림' 기능을 위한 임포트 추가 ⬇️⬇️⬇️
+from newspaper import Article # AI 요약을 위해 추가
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
@@ -50,7 +50,7 @@ def get_kst_today_str():
 def markdown_to_html(text):
     return markdown.markdown(text) if text else ""
 
-# --- 핵심 기능 클래스 (NewsScraper, AIService, EmailService는 이전과 동일) ---
+# --- 핵심 기능 클래스 ---
 class NewsScraper:
     def __init__(self, config):
         self.config = config
@@ -71,28 +71,22 @@ class NewsScraper:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
             
-            # 1. 메타 태그 (가장 신뢰도 높음)
             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
             if meta_image and meta_image.get("content"):
                 meta_url = self._resolve_url(article_url, meta_image["content"])
-                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url):
-                    return meta_url
+                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url): return meta_url
 
-            # 2. 본문 <figure> 또는 <picture> 태그 (byline, klnews 등 최신 사이트 대응)
             for tag in soup.select('figure > img, picture > img', limit=5):
                 img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
                 if img_url and self._is_valid_candidate(img_url):
                     full_url = self._resolve_url(article_url, img_url)
-                    if self._validate_image(full_url):
-                        return full_url
+                    if self._validate_image(full_url): return full_url
             
-            # 3. 일반 <img> 태그 (가장 기본적인 방법)
             for img in soup.find_all("img", limit=10):
                 img_url = img.get("src") or img.get("data-src")
                 if img_url and self._is_valid_candidate(img_url):
                     full_url = self._resolve_url(article_url, img_url)
-                    if self._validate_image(full_url):
-                        return full_url
+                    if self._validate_image(full_url): return full_url
 
             return self.config.DEFAULT_IMAGE_URL
         except Exception:
@@ -124,40 +118,26 @@ class NewsScraper:
             return False
 
 class AIService:
-    def generate_single_summary(self, article_title: str, article_link: str) -> str | None:
-        """기사 제목과 원문 링크를 바탕으로 3줄 요약을 생성합니다."""
-        try:
-            # newspaper3k 라이브러리를 이용해 기사 본문을 추출
-            article = Article(article_link)
-            article.download()
-            article.parse()
-            
-            # 본문이 너무 짧으면 요약하지 않음
-            if len(article.text) < 100:
-                return "요약 정보를 생성할 수 없습니다."
-            
-            prompt = f"""
-            당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다.
-            아래 제목과 본문을 가진 뉴스 기사의 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요.
-            
-            [제목]: {article_title}
-            [본문]:
-            {article.text[:1500]} 
-            """ # (토큰 사용량을 줄이기 위해 본문 앞 1500자만 사용)
-
-            response = self.model.generate_content(prompt)
-            return response.text
-
-        except Exception as e:
-            print(f"  ㄴ> ❌ AI 요약 생성 실패: {e.__class__.__name__}")
-            return None
-    # (변경 없음)
     def __init__(self, config):
         self.config = config
         if not self.config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
         genai.configure(api_key=self.config.GEMINI_API_KEY)
         self.model = genai.GenerativeModel(self.config.GEMINI_MODEL)
+
+    def generate_single_summary(self, article_title: str, article_link: str) -> str | None:
+        try:
+            article = Article(article_link)
+            article.download()
+            article.parse()
+            if len(article.text) < 100: return "요약 정보를 생성할 수 없습니다."
+            
+            prompt = f"당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다. 아래 제목과 본문을 가진 뉴스 기사의 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요.\n\n[제목]: {article_title}\n[본문]:\n{article.text[:1500]}"
+            response = self.model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            print(f"  ㄴ> ❌ AI 요약 생성 실패: {e.__class__.__name__}")
+            return None
 
     def _generate_content_with_retry(self, prompt, is_json=False):
         for attempt in range(3):
@@ -175,34 +155,8 @@ class AIService:
 
     def select_top_news(self, news_list):
         print(f"AI 뉴스 선별 시작... (대상: {len(news_list)}개)")
-        
-        # 변경점: AI에게 제목뿐만 아니라 '요약' 내용도 함께 전달
-        context = "\n\n".join(
-            [f"기사 #{i}\n제목: {news['title']}\n요약: {news['summary']}" for i, news in enumerate(news_list)]
-        )
-        
-        # 변경점: 중복 제거 지시를 훨씬 더 강화하고 명확하게 변경
-        prompt = f"""
-        당신은 대한민국 최고의 물류 전문 뉴스 편집장입니다. 당신의 임무는 독자에게 가장 가치 있는 정보만을 제공하는 것입니다.
-        아래 뉴스 목록을 분석하여 다음 두 가지 작업을 순서대로 수행해주세요.
-
-        작업 1: 주제별 그룹화 및 대표 기사 선정
-        - 내용이 사실상 동일한 뉴스들을 하나의 그룹으로 묶으세요. (예: 동일한 사건, 발표, 인물 인터뷰 등)
-        - 각 그룹에서 제목이 가장 구체적이고 요약 정보가 풍부한 기사를 **단 하나만** 대표로 선정하세요.
-        - **하나의 동일한 사건에 대해서는 반드시 단 하나의 대표 기사만 최종 후보가 될 수 있습니다.**
-
-        작업 2: 최종 Top 10 선정
-        - 대표 기사로 선정된 후보들 중에서, 시장 동향, 기술 혁신, 주요 기업 소식을 종합적으로 고려하여 가장 중요도가 높은 순서대로 최종 10개를 선정해주세요.
-
-        [뉴스 목록]
-        {context}
-
-        [출력 형식]
-        - 반드시 JSON 형식으로만 응답해야 합니다.
-        - 'selected_indices' 키에 당신이 최종 선정한 기사 10개의 번호(인덱스)를 숫자 배열로 담아주세요.
-        - 예: {{"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}}
-        """
-        
+        context = "\n\n".join([f"기사 #{i}\n제목: {news['title']}\n요약: {news['summary']}" for i, news in enumerate(news_list)])
+        prompt = f"""당신은 대한민국 최고의 물류 전문 뉴스 편집장입니다. 당신의 임무는 독자에게 가장 가치 있는 정보만을 제공하는 것입니다. 아래 뉴스 목록을 분석하여 다음 두 가지 작업을 순서대로 수행해주세요. 작업 1: 주제별 그룹화 및 대표 기사 선정 - 내용이 사실상 동일한 뉴스들을 하나의 그룹으로 묶으세요. (예: 동일한 사건, 발표, 인물 인터뷰 등) - 각 그룹에서 제목이 가장 구체적이고 요약 정보가 풍부한 기사를 **단 하나만** 대표로 선정하세요. - **하나의 동일한 사건에 대해서는 반드시 단 하나의 대표 기사만 최종 후보가 될 수 있습니다.** 작업 2: 최종 Top 10 선정 - 대표 기사로 선정된 후보들 중에서, 시장 동향, 기술 혁신, 주요 기업 소식을 종합적으로 고려하여 가장 중요도가 높은 순서대로 최종 10개를 선정해주세요. [뉴스 목록]\n{context}\n\n[출력 형식] - 반드시 JSON 형식으로만 응답해야 합니다. - 'selected_indices' 키에 당신이 최종 선정한 기사 10개의 번호(인덱스)를 숫자 배열로 담아주세요. 예: {{"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}}"""
         response_text = self._generate_content_with_retry(prompt, is_json=True)
         if response_text:
             try:
@@ -216,17 +170,17 @@ class AIService:
 
     def generate_briefing(self, news_list):
         print("AI 브리핑 생성 시작...")
-        context = "\n\n".join([f"제목: {news['title']}\n요약: {news['summary']}" for news in news_list])
+        context = "\n\n".join([f"제목: {news['title']}\n요약: {news['ai_summary'] if news.get('ai_summary') else news.get('summary')}" for news in news_list])
         prompt = f"""당신은 탁월한 통찰력을 가진 IT/경제 뉴스 큐레이터입니다. 아래 뉴스 목록을 분석하여, 독자를 위한 매우 간결하고 읽기 쉬운 '데일리 브리핑'을 작성해주세요. **출력 형식 규칙:** 1. '에디터 브리핑'은 '## 에디터 브리핑' 헤더로 시작하며, 오늘 뉴스의 핵심을 2~3 문장으로 요약합니다. 2. '주요 뉴스 분석'은 '## 주요 뉴스 분석' 헤더로 시작합니다. 3. 주요 뉴스 분석에서는 가장 중요한 뉴스 카테고리 2~3개를 '###' 헤더로 구분합니다. 4. 각 카테고리 안에서는, 관련된 여러 뉴스를 하나의 간결한 문장으로 요약하고 글머리 기호(`*`)를 사용합니다. 5. 문장 안에서 강조하고 싶은 특정 키워드는 큰따옴표(" ")로 묶어주세요. [오늘의 뉴스 목록]\n{context}"""
         briefing = self._generate_content_with_retry(prompt)
         if briefing: print("✅ AI 브리핑 생성 성공!")
         return briefing
-
-# ⬇️⬇️⬇️ 최종 로직이 적용된 NewsService 클래스 ⬇️⬇️⬇️
+        
 class NewsService:
-    def __init__(self, config, scraper):
+    def __init__(self, config, scraper, ai_service):
         self.config = config
         self.scraper = scraper
+        self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
 
     def _create_stealth_driver(self):
@@ -240,7 +194,6 @@ class NewsService:
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.add_argument(f'--user-agent={random.choice(self.config.USER_AGENTS)}')
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        
         try:
             service = ChromeService(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -260,9 +213,6 @@ class NewsService:
             return set()
 
     def _fetch_google_news_rss(self):
-        """
-        pygooglenews를 대체하여 Google News RSS 피드를 직접 요청하고 파싱합니다.
-        """
         print("Google News RSS 피드를 직접 수집합니다...")
         query = " OR ".join([f'"{k}"' for k in self.config.KEYWORDS])
         url = f"https://news.google.com/rss/search?q={query}+when:2d&hl=ko&gl=KR&ceid=KR:ko"
@@ -272,13 +222,7 @@ class NewsService:
         response.raise_for_status()
         
         soup = BeautifulSoup(response.content, 'xml')
-        items = []
-        for item in soup.findAll('item'):
-            items.append({
-                'title': item.title.text,
-                'link': item.link.text,
-                'summary': item.description.text if item.description else ""
-            })
+        items = [{'title': item.title.text, 'link': item.link.text, 'summary': item.description.text if item.description else ""} for item in soup.findAll('item')]
         return items
 
     def get_fresh_news(self):
@@ -296,13 +240,7 @@ class NewsService:
 
             print(f"✅ 총 {len(processed_news)}개 기사 원본 URL 추출 및 처리 완료.")
             
-            final_news = []
-            seen_urls = set()
-            for news in processed_news:
-                if news['link'] not in self.sent_links and news['link'] not in seen_urls:
-                    seen_urls.add(news['link'])
-                    final_news.append(news)
-            
+            final_news = [news for news in processed_news if news['link'] not in self.sent_links]
             print(f"✅ 총 {len(final_news)}개의 유효한 새 뉴스를 처리했습니다.")
             return final_news
         except Exception as e:
@@ -314,17 +252,14 @@ class NewsService:
             parsed = urlparse(url)
             if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
                 return None
-            
             if not parsed.path or len(parsed.path) <= 5:
                 if not any(allowed in parsed.netloc for allowed in ['hyundai.co.kr']):
                     return None
-            
             return parsed._replace(fragment="").geturl()
         except Exception:
             return None
 
     def _resolve_and_process_entry(self, entry):
-        # (이 함수는 이제 AI 요약을 호출하지 않습니다. AI 요약은 select_top_news에서 처리됩니다.)
         driver = None
         try:
             driver = self._create_stealth_driver()
@@ -337,11 +272,15 @@ class NewsService:
             validated_url = self._clean_and_validate_url(original_url)
             if not validated_url:
                 return None
-
+            
+            ai_summary = self.ai_service.generate_single_summary(entry['title'], validated_url)
+            scraped_summary = BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True)
+            
             return {
                 'title': entry['title'],
                 'link': validated_url, 'url': validated_url,
-                'summary': BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True),
+                'summary': scraped_summary[:150] + '...' if scraped_summary else "",
+                'ai_summary': ai_summary,
                 'image_url': self.scraper.get_image_url(validated_url)
             }
         except Exception:
@@ -360,7 +299,6 @@ class NewsService:
             print(f"❌ 발송 기록 파일 업데이트 실패: {e}")
 
 class EmailService:
-    # (변경 없음)
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
@@ -402,9 +340,8 @@ class EmailService:
             print(f"❌ 이메일 발송 실패: {error}")
 
 def main():
-    # (변경 없음)
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
-    news_service = None # finally 블록에서 사용하기 위해 미리 선언
+    news_service = None
     try:
         config = Config()
         news_scraper = NewsScraper(config)
@@ -438,11 +375,8 @@ def main():
     except Exception as e:
         print(f"🔥 치명적인 오류 발생: {e}")
     finally:
-        # 프로그램이 어떻게 종료되든 (성공, 실패, 예외) 항상 브라우저 드라이버를 확실하게 종료
-        if news_service:
-            del news_service
+        if news_service and hasattr(news_service, 'driver') and news_service.driver:
+             del news_service
 
 if __name__ == "__main__":
     main()
-
-
