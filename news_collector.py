@@ -20,7 +20,7 @@ from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
-from pygooglenews import GoogleNews
+#from pygooglenews import GoogleNews
 from zoneinfo import ZoneInfo
 
 # ⬇️⬇️⬇️ Selenium의 '지능적 기다림' 기능을 위한 임포트 추가 ⬇️⬇️⬇️
@@ -444,4 +444,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
