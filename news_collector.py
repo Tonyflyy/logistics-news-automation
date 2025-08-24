@@ -224,10 +224,9 @@ class AIService:
 
 # ⬇️⬇️⬇️ 최종 로직이 적용된 NewsService 클래스 ⬇️⬇️⬇️
 class NewsService:
-    def __init__(self, config, scraper,ai_service):
+    def __init__(self, config, scraper):
         self.config = config
         self.scraper = scraper
-        self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
 
     def _create_stealth_driver(self):
@@ -260,35 +259,55 @@ class NewsService:
         except FileNotFoundError:
             return set()
 
+    def _fetch_google_news_rss(self):
+        """
+        pygooglenews를 대체하여 Google News RSS 피드를 직접 요청하고 파싱합니다.
+        """
+        print("Google News RSS 피드를 직접 수집합니다...")
+        query = " OR ".join([f'"{k}"' for k in self.config.KEYWORDS])
+        url = f"https://news.google.com/rss/search?q={query}+when:2d&hl=ko&gl=KR&ceid=KR:ko"
+        
+        headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'xml')
+        items = []
+        for item in soup.findAll('item'):
+            items.append({
+                'title': item.title.text,
+                'link': item.link.text,
+                'summary': item.description.text if item.description else ""
+            })
+        return items
+
     def get_fresh_news(self):
-        print("최신 뉴스 수집을 시작합니다...")
-        client = GoogleNews(lang='ko', country='KR')
-        query = ' OR '.join(self.config.KEYWORDS) + ' -해운 -항공'
-        search_results = client.search(query, when=f'{self.config.NEWS_FETCH_HOURS}h')
-        
-        all_articles = [entry for entry in search_results['entries'] if entry.get('link')]
-        unique_articles = list({article['link']: article for article in all_articles}.values())
-        print(f"총 {len(unique_articles)}개의 새로운 후보 기사를 발견했습니다.")
+        try:
+            all_articles = self._fetch_google_news_rss()
+            print(f"총 {len(all_articles)}개의 새로운 후보 기사를 발견했습니다.")
 
-        processed_news = []
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_entry = {executor.submit(self._resolve_and_process_entry, entry): entry for entry in unique_articles[:30]}
-            for future in as_completed(future_to_entry):
-                result = future.result()
-                if result:
-                    processed_news.append(result)
+            processed_news = []
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_entry = {executor.submit(self._resolve_and_process_entry, entry): entry for entry in all_articles[:50]}
+                for future in as_completed(future_to_entry):
+                    result = future.result()
+                    if result:
+                        processed_news.append(result)
 
-        print(f"✅ 총 {len(processed_news)}개 기사 원본 URL 추출 및 처리 완료.")
-        
-        final_news = []
-        seen_urls = set()
-        for news in processed_news:
-            if news['link'] not in self.sent_links and news['link'] not in seen_urls:
-                seen_urls.add(news['link'])
-                final_news.append(news)
-        
-        print(f"✅ 총 {len(final_news)}개의 유효한 새 뉴스를 처리했습니다.")
-        return final_news
+            print(f"✅ 총 {len(processed_news)}개 기사 원본 URL 추출 및 처리 완료.")
+            
+            final_news = []
+            seen_urls = set()
+            for news in processed_news:
+                if news['link'] not in self.sent_links and news['link'] not in seen_urls:
+                    seen_urls.add(news['link'])
+                    final_news.append(news)
+            
+            print(f"✅ 총 {len(final_news)}개의 유효한 새 뉴스를 처리했습니다.")
+            return final_news
+        except Exception as e:
+            print(f"❌ 뉴스 수집 중 심각한 오류 발생: {e}")
+            return []
 
     def _clean_and_validate_url(self, url: str) -> str | None:
         try:
@@ -296,20 +315,16 @@ class NewsService:
             if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
                 return None
             
-            # 홈페이지 URL 필터링: 경로가 없거나 매우 짧으면(5글자 이하) 제외
             if not parsed.path or len(parsed.path) <= 5:
-                # 단, 허용 목록에 있는 도메인은 예외 (예: hyundai.co.kr)
                 if not any(allowed in parsed.netloc for allowed in ['hyundai.co.kr']):
-                    print(f"  ㄴ> 🗑️ 홈페이지 링크 제외: {url[:80]}...")
                     return None
             
-            cleaned_url = parsed._replace(fragment="").geturl()
-            return cleaned_url
+            return parsed._replace(fragment="").geturl()
         except Exception:
             return None
 
     def _resolve_and_process_entry(self, entry):
-        """드라이버 생성부터 URL 추출, 뉴스 처리 및 AI 요약까지 한 번에 수행합니다."""
+        # (이 함수는 이제 AI 요약을 호출하지 않습니다. AI 요약은 select_top_news에서 처리됩니다.)
         driver = None
         try:
             driver = self._create_stealth_driver()
@@ -323,23 +338,10 @@ class NewsService:
             if not validated_url:
                 return None
 
-            print(f"  -> ✅ URL 처리 성공: {entry['title']}")
-
-            # ⬇️⬇️⬇️ AI 요약 기능 호출 추가 ⬇️⬇️⬇️
-            # AIService 객체를 직접 생성하거나 main에서 넘겨받아야 합니다.
-            # 이 구조에서는 main 함수에서 NewsService를 생성할 때 AIService 객체를 넘겨주는 것이 좋습니다.
-            # 하지만 간단한 수정을 위해, 이 함수 내에서 임시로 생성하도록 하겠습니다.
-            # (더 나은 구조는 main.py 전체 코드를 다시 구성할 때 반영할 수 있습니다.)
-            ai_summary = self.ai_service.generate_single_summary(entry['title'], validated_url)
-
-            scraped_summary = BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True)
-            
             return {
                 'title': entry['title'],
-                'link': validated_url, 
-                'url': validated_url,
-                'summary': scraped_summary[:150] + '...' if scraped_summary else "", # 기존 요약은 만약을 위해 유지
-                'ai_summary': ai_summary, # 새로 추가된 AI 요약
+                'link': validated_url, 'url': validated_url,
+                'summary': BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True),
                 'image_url': self.scraper.get_image_url(validated_url)
             }
         except Exception:
@@ -442,3 +444,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
