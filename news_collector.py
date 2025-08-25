@@ -213,9 +213,6 @@ class NewsService:
             all_articles = self._fetch_google_news_rss()
             print(f"총 {len(all_articles)}개의 새로운 후보 기사를 발견했습니다.")
             
-            # ⬇️⬇️⬇️ sent_links 필터링을 나중으로 옮겨서, 이미 보낸 기사라도 URL 추출 테스트는 진행되도록 함 ⬇️⬇️⬇️
-            # valid_articles = [article for article in all_articles if article['link'] not in self.sent_links]
-            
             processed_articles = []
             with ThreadPoolExecutor(max_workers=4) as executor:
                 future_to_article = {executor.submit(self._resolve_and_process_url, article): article for article in all_articles[:50]}
@@ -226,7 +223,6 @@ class NewsService:
 
             print(f"✅ 총 {len(processed_articles)}개 기사 원본 URL 추출 및 처리 완료.")
             
-            # 최종적으로 DB와 대조하여 보낸 적 없는 뉴스만 필터링
             final_news = []
             seen_urls = set()
             for news in processed_articles:
@@ -240,18 +236,12 @@ class NewsService:
             print(f"❌ 뉴스 수집 중 심각한 오류 발생: {e}")
             return []
             
-    # ⬇️⬇️⬇️ '추측성' 필터였던 _is_valid_article_url 함수는 완전히 삭제했습니다. ⬇️⬇️⬇️
-
-    # ⬇️⬇️⬇️ 광고 필터링과 URL 정제 기능만 남긴 _clean_url 함수 ⬇️⬇️⬇️
     def _clean_url(self, url: str) -> str | None:
         """URL에서 불필요한 부분을 제거하고, 광고 도메인인지 확인합니다."""
         try:
             parsed = urlparse(url)
-            # 1. 광고 도메인 블랙리스트 확인
             if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
                 return None
-            
-            # 2. URL의 # 뒤 '책갈피' 부분 제거
             return parsed._replace(fragment="").geturl()
         except Exception:
             return None
@@ -264,14 +254,15 @@ class NewsService:
 
             driver.get(entry['link'])
             
-            # ⬇️⬇️⬇️ 핵심 변경: 더 정확한 XPath 선택자로 메인 링크를 특정합니다. ⬇️⬇️⬇️
-            # 'c-wiz'는 구글 리디렉션 페이지의 메인 컨테이너이며, 그 안의 첫번째 링크가 우리가 찾는 링크입니다.
+            # XPath를 사용하여 페이지의 메인 컨테이너(c-wiz) 안의 첫 번째 링크를 정확히 찾아냅니다.
             wait = WebDriverWait(driver, 10)
-            link_element = wait.until(EC.presence_of_element_located((By.XPATH, "//c-wiz//a")))
+            link_element = wait.until(
+                EC.presence_of_element_located((By.XPATH, "//c-wiz//a[@href]"))
+            )
             
             original_url = link_element.get_attribute('href')
-            
             validated_url = self._clean_url(original_url)
+
             if not validated_url:
                 return None
 
