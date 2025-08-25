@@ -36,7 +36,7 @@
                 {% if news.image_url %}
                 <div style="margin-bottom: 16px;">
                     <a href="{{ news.link }}" target="_blank" style="text-decoration: none;">
-                        <img src="{{ news.image_url }}" alt="Article Thumbnail" style="max-width: 100%; height: auto; border-radius: 6px; display: block;">
+                        <img src="cid:{{ news.cid }}" alt="뉴스 이미지" style="width:100%;">
                     </a>
                 </div>
                 {% endif %}
@@ -65,4 +65,5 @@
 
 </body>
 </html>
+
 
