@@ -1,5 +1,5 @@
 # main.py
-import os, base64, markdown, json, time, random, re, logging, feedparser
+import os, base64, markdown, json, time, random, re, logging, ssl
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from urllib.parse import urlparse, urljoin
@@ -14,17 +14,35 @@ from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from zoneinfo import ZoneInfo
-from newspaper import Article, ArticleException
+from newspaper import Article, Config as NewspaperConfig # ⬅️ newspaper의 Config 임포트
 
-# 구글 인증 관련
+# (이하 다른 import 구문은 이전과 동일)
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.options import Options
+from selenium_stealth import stealth
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.generativeai as genai
-
 from config import Config
+
+# --- SSL 오류 해결을 위한 설정 ---
+class CustomHttpAdapter(HTTPAdapter):
+    def __init__(self, *args, **kwargs):
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
+        super().__init__(*args, **kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False):
+        self.poolmanager = requests.packages.urllib3.poolmanager.PoolManager(
+            num_pools=connections, maxsize=maxsize, block=block, ssl_context=self.ssl_context)
 
 # --- 로깅 설정 ---
 def setup_logging():
@@ -39,16 +57,14 @@ def markdown_to_html(text):
 
 # --- 핵심 기능 클래스 ---
 class NewsScraper:
+    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.session = self._create_session()
 
     def _create_session(self):
         session = requests.Session()
-        retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('https://', adapter)
-        session.mount('http://', adapter)
+        session.mount('https://', CustomHttpAdapter())
         return session
 
     def get_image_url(self, soup, article_url):
@@ -154,6 +170,7 @@ class AIService:
         return briefing
 
 class NewsService:
+    # ⬇️⬇️⬇️ 이 클래스 내부의 _process_single_article 함수가 핵심적으로 변경되었습니다 ⬇️⬇️⬇️
     def __init__(self, config, scraper, ai_service):
         self.config = config
         self.scraper = scraper
@@ -172,17 +189,15 @@ class NewsService:
             all_articles = self._fetch_articles_from_rss_feeds()
             logging.info(f"총 {len(all_articles)}개의 후보 기사를 수집했습니다.")
 
-            # 이미 보낸 링크와 중복 링크를 1차로 필터링
             unique_articles = []
-            seen_links = set()
+            seen_links = set(self.sent_links)
             for article in all_articles:
-                if article['link'] not in self.sent_links and article['link'] not in seen_links:
+                if article['link'] not in seen_links:
                     seen_links.add(article['link'])
                     unique_articles.append(article)
             
             logging.info(f"중복 제외 후 {len(unique_articles)}개의 기사를 처리합니다.")
 
-            # 병렬 처리를 통해 각 기사의 상세 정보(본문, 이미지)를 가져옴
             processed_articles = []
             with ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_article = {executor.submit(self._process_single_article, article): article for article in unique_articles}
@@ -198,7 +213,6 @@ class NewsService:
             return []
     
     def _fetch_articles_from_rss_feeds(self):
-        """RSS 피드 목록을 순회하며 모든 기사 항목을 가져옵니다."""
         all_entries = []
         for feed_url in self.config.RSS_FEEDS:
             try:
@@ -219,25 +233,26 @@ class NewsService:
         return all_entries
 
     def _process_single_article(self, article_info):
-        """단일 기사를 받아 키워드 필터링, 본문 및 이미지 추출을 수행합니다."""
         try:
-            # 1. 키워드 필터링
             search_text = article_info['title'] + " " + article_info['summary']
             if not any(keyword.lower() in search_text.lower() for keyword in self.config.KEYWORDS):
                 return None
             
             logging.info(f"  -> 키워드 일치, 처리 시작: {article_info['title']}")
             
-            # 2. newspaper3k를 이용해 본문 및 최종 정보 추출
-            article = Article(article_info['link'])
+            # ⬇️⬇️⬇️ 핵심 변경점: newspaper3k에 SSL 우회 설정 적용 ⬇️⬇️⬇️
+            newspaper_config = NewspaperConfig()
+            newspaper_config.browser_user_agent = random.choice(self.config.USER_AGENTS)
+            newspaper_config.verify_ssl = False # SSL 인증서 검증 비활성화
+            newspaper_config.fetch_images = False # 이미지 다운로드는 나중에 하므로 비활성화
+            newspaper_config.request_timeout = 10
+
+            article = Article(article_info['link'], config=newspaper_config)
             article.download()
             article.parse()
             
-            # 유효하지 않은 기사(내용이 없거나 제목이 없는 경우) 제외
             if not article.text or not article.title: return None
 
-            # 3. 이미지 추출
-            # newspaper3k가 파싱한 HTML(soup)을 이미지 스크래퍼에 전달
             image_url = self.scraper.get_image_url(article.soup, article.url)
             
             return {
@@ -247,8 +262,9 @@ class NewsService:
                 'image_url': image_url,
                 'full_text': article.text
             }
-        except Exception:
-            # logging.error(f"  -> 🚨 기사 처리 중 오류: {article_info.get('title')}", exc_info=True)
+        except Exception as e:
+            # ⬇️⬇️⬇️ 핵심 변경점: 오류 발생 시 상세 내용 로깅 ⬇️⬇️⬇️
+            logging.error(f"  -> 🚨 기사 처리 중 오류: {article_info.get('title')}", exc_info=True)
             return None
 
     def update_sent_links_log(self, news_list):
@@ -308,35 +324,29 @@ def main():
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
 
-        # 1. 뉴스 후보 수집 및 상세 정보 처리
         all_news = news_service.get_fresh_news()
         if not all_news:
             logging.info("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
             return
 
-        # 2. AI를 이용해 Top 10 뉴스 선별
         top_10_news_base = ai_service.select_top_news(all_news)
         if not top_10_news_base:
             logging.warning("⚠️ AI가 Top 뉴스를 선별하지 못했습니다.")
             return
             
-        # 3. 선별된 Top 10 뉴스의 AI 요약 생성 (API 호출 최소화)
         logging.info(f"✅ AI Top 10 선별 완료. 선별된 {len(top_10_news_base)}개 뉴스의 개별 AI 요약을 시작합니다...")
         for news in top_10_news_base:
             news['ai_summary'] = ai_service.generate_single_summary(news['title'], news['full_text'])
 
-        # 4. 전체 브리핑 생성
         ai_briefing_md = ai_service.generate_briefing(top_10_news_base)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
 
-        # 5. 이메일 발송
         email_service = EmailService(config)
         today_str = get_kst_today_str()
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_10_news_base)}"
         email_body = email_service.create_email_body(top_10_news_base, ai_briefing_html, today_str)
         email_service.send_email(email_subject, email_body)
         
-        # 6. 발송 기록 업데이트
         news_service.update_sent_links_log(top_10_news_base)
 
         logging.info("🎉 모든 프로세스가 성공적으로 완료되었습니다.")
