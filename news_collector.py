@@ -204,18 +204,14 @@ class NewsService:
                     webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
             driver.set_page_load_timeout(15)
             return driver
-        except Exception as e:
-            logging.error("🚨 드라이버 생성 실패!", exc_info=True)
+        except Exception:
             return None
 
     def _load_sent_links(self):
         try:
             with open(self.config.SENT_LINKS_FILE, 'r', encoding='utf-8') as f:
-                links = set(line.strip() for line in f)
-                logging.info(f"✅ {len(links)}개 발송 기록 로드 완료.")
-                return links
+                return set(line.strip() for line in f)
         except FileNotFoundError:
-            logging.warning("⚠️ 발송 기록 파일이 없어 새로 시작합니다.")
             return set()
 
     def _fetch_google_news_rss(self):
@@ -226,35 +222,39 @@ class NewsService:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'xml')
-        return [{'title': item.title.text, 'link': item.link.text, 'summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
+        # RSS에서 가져온 기본 정보를 반환
+        return [{'rss_title': item.title.text, 'google_link': item.link.text, 'rss_summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
 
     def get_fresh_news(self):
+        driver = None
         try:
-            all_articles = self._fetch_google_news_rss()
-            logging.info(f"총 {len(all_articles)}개의 새로운 후보 기사를 발견했습니다.")
+            initial_articles = self._fetch_google_news_rss()
+            logging.info(f"총 {len(initial_articles)}개의 새로운 후보 기사를 발견했습니다.")
             
             processed_articles = []
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                future_to_article = {executor.submit(self._resolve_and_process_url, article): article for article in all_articles[:50]}
-                for future in as_completed(future_to_article):
-                    result = future.result()
-                    if result:
-                        processed_articles.append(result)
+            
+            # ⬇️⬇️⬇️ 핵심 변경: 병렬 처리 대신, 드라이버 하나로 순차 처리 ⬇️⬇️⬇️
+            driver = self._create_stealth_driver()
+            if not driver:
+                logging.critical("❌ 드라이버 생성 실패로 뉴스 수집을 중단합니다.")
+                return []
 
-            logging.info(f"✅ 총 {len(processed_articles)}개 기사 원본 URL 추출 및 처리 완료.")
-            
-            final_news = []
-            seen_urls = set()
-            for news in processed_articles:
-                if news['link'] not in self.sent_links and news['link'] not in seen_urls:
-                    seen_urls.add(news['link'])
-                    final_news.append(news)
-            
-            logging.info(f"✅ 총 {len(final_news)}개의 유효한 새 뉴스를 처리했습니다.")
-            return final_news
+            for entry in initial_articles[:50]:
+                if entry['google_link'] in self.sent_links:
+                    continue
+                
+                article_data = self._resolve_and_process_article(driver, entry)
+                if article_data:
+                    processed_articles.append(article_data)
+
+            logging.info(f"✅ 총 {len(processed_articles)}개의 유효한 새 뉴스를 처리했습니다.")
+            return processed_articles
         except Exception as e:
             logging.error("❌ 뉴스 수집 중 심각한 오류 발생:", exc_info=True)
             return []
+        finally:
+            if driver:
+                driver.quit()
             
     def _clean_url(self, url: str) -> str | None:
         try:
@@ -265,60 +265,49 @@ class NewsService:
         except Exception:
             return None
 
-    def _resolve_and_process_url(self, entry):
-        logging.info(f"-> URL 처리 시도: {entry['title']}")
-        driver = None
+    def _resolve_and_process_article(self, driver, entry):
+        logging.info(f"-> URL 처리 시도: {entry['rss_title']}")
         try:
-            driver = self._create_stealth_driver()
-            if not driver: return None
-
-            driver.get(entry['link'])
+            driver.get(entry['google_link'])
             wait = WebDriverWait(driver, 10)
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "a")))
-            
-            all_links = driver.find_elements(By.TAG_NAME, "a")
-            logging.info(f"  -> 페이지에서 {len(all_links)}개의 링크 후보 발견.")
+            all_links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
 
             best_candidate = None
             max_text_length = -1
-
             for link_element in all_links:
-                href = link_element.get_attribute('href')
-                text = link_element.text.strip()
-                logging.debug(f"    -> 후보 링크 검사: Text='{text[:30]}...', Href='{href[:80] if href else 'N/A'}'")
-
-                if not href or not text: continue
-                if "google.com" in href or "accounts.google.com" in href: continue
-
-                cleaned_url = self._clean_url(href)
-                if cleaned_url and len(text) > max_text_length:
-                    max_text_length = len(text)
-                    best_candidate = cleaned_url
+                try:
+                    href = link_element.get_attribute('href')
+                    text = link_element.text.strip()
+                    if not href or not text: continue
+                    if "google.com" in href: continue
+                    cleaned_url = self._clean_url(href)
+                    if cleaned_url and len(text) > max_text_length:
+                        max_text_length = len(text)
+                        best_candidate = cleaned_url
+                except Exception: continue
             
-            if not best_candidate:
-                logging.warning(f"  -> ⚠️ 유효한 기사 링크를 찾지 못함: {entry['title']}")
-                return None
+            if not best_candidate: return None
             
-            logging.info(f"  -> ✅ 최종 URL 선택: {best_candidate[:80]}...")
             validated_url = best_candidate
-
             article = Article(validated_url)
             article.download()
             article.parse()
 
+            # ⬇️⬇️⬇️ 핵심 변경: RSS의 제목이 아닌, 실제 페이지에서 추출한 최종 제목 사용 ⬇️⬇️⬇️
+            final_title = article.title if article.title else entry['rss_title']
+
+            logging.info(f"  -> ✅ 최종 URL/제목 확보: {final_title}")
+
             return {
-                'title': entry['title'],
+                'title': final_title,
                 'link': validated_url, 'url': validated_url,
-                'summary': BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True)[:150] + "...",
+                'summary': BeautifulSoup(entry.get('rss_summary', ''), 'lxml').get_text(strip=True)[:150] + "...",
                 'image_url': self.scraper.get_image_url(validated_url),
                 'full_text': article.text
             }
-        except Exception as e:
-            logging.error(f"  -> 🚨 URL 처리 중 예외 발생: {entry['title']}", exc_info=True)
+        except Exception:
+            logging.error(f"  -> 🚨 URL 처리 중 예외 발생: {entry['rss_title']}", exc_info=True)
             return None
-        finally:
-            if driver:
-                driver.quit()
 
     def update_sent_links_log(self, news_list):
         links = [news['link'] for news in news_list]
@@ -415,3 +404,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
