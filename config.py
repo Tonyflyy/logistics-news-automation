@@ -29,22 +29,15 @@ class Config:
     MAX_ARTICLES = 100
 
     RSS_FEEDS = [
-    # [물류 전문]
+    # [물류/IT/경제]
     "https://www.klnews.co.kr/rss/S1N1.xml",      # 물류신문 (전체 기사)
-
-    # [IT/기술]
     "https://www.etnews.com/rss/all.xml",         # 전자신문 (전체 기사)
-    "https://www.zdnet.co.kr/rss/all.xml",       # ZDNet Korea (전체 기사)
     "https://www.ddaily.co.kr/rss/all.xml",      # 디지털데일리 (전체 기사)
-    "https://it.chosun.com/rss/index.xml",       # IT조선 (전체 기사)
-
-    # [경제/산업]
     "https://www.hankyung.com/feed/it",           # 한국경제 (IT 섹션)
     "https://www.mk.co.kr/rss/30100041/",         # 매일경제 (산업 섹션)
     "http://rss.edaily.co.kr/edaily_news.xml",   # 이데일리 (주요 뉴스)
-    "https://www.sedaily.com/rss/all",           # 서울경제 (전체 기사)
 
-    # [종합/주요 뉴스]
+    # [종합]
     "https://www.yonhapnewstv.co.kr/browse/feed/",# 연합뉴스TV (전체 기사)
     "https://fs.jtbc.co.kr/RSS/newsflash.xml",   # JTBC (속보)
     "https://rss.donga.com/total.xml",           # 동아일보 (전체 기사)
@@ -79,6 +72,7 @@ class Config:
         'doubleclick.net',
 
     ]
+
 
 
 
