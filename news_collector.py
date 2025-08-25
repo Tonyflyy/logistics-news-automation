@@ -349,7 +349,7 @@ def main():
         config = Config()
         news_scraper = NewsScraper(config)
         ai_service = AIService(config)
-        news_service = NewsService(config, news_scraper)
+        news_service = NewsService(config, news_scraper, ai_service)
 
         # 1. 모든 뉴스 후보 수집 및 원문 텍스트 확보
         all_news = news_service.get_fresh_news()
@@ -393,4 +393,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
