@@ -5,6 +5,7 @@ from email.mime.text import MIMEText
 from urllib.parse import urlparse, urljoin
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 
 # 서드파티 라이브러리
 import requests
@@ -283,28 +284,37 @@ class NewsService:
             wait = WebDriverWait(driver, 10)
             all_links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
             
-            best_candidate = None
-            max_text_length = -1
+            best_candidate_url = None
+            highest_similarity = 0.0
+
+            logging.info(f"  -> 페이지에서 {len(all_links)}개의 링크 후보를 DNA 대조합니다...")
             for link_element in all_links:
                 try:
                     href = link_element.get_attribute('href')
                     text = link_element.text.strip()
-                    if not href or not text: continue
-                    if "google.com" in href: continue
-                    if href.startswith(('mailto:', 'javascript:')): continue
+                    
+                    if not href or not text or href.startswith(('mailto:', 'javascript:')) or "google.com" in href:
+                        continue
 
-                    cleaned_url = self._clean_url(href)
-                    if cleaned_url and len(text) > max_text_length:
-                        max_text_length = len(text)
-                        best_candidate = cleaned_url
+                    # ⬇️⬇️⬇️ 핵심 변경점: RSS 제목과 링크 텍스트의 유사도를 계산 ⬇️⬇️⬇️
+                    similarity = SequenceMatcher(None, entry['rss_title'], text).ratio()
+                    logging.debug(f"    -> 후보: '{text[:30]}...' (유사도: {similarity:.2f})")
+
+                    if similarity > highest_similarity:
+                        highest_similarity = similarity
+                        best_candidate_url = href
                 except Exception:
                     continue
             
-            if not best_candidate:
-                logging.warning(f"  -> ⚠️ 유효한 기사 링크를 찾지 못함: {entry['rss_title']}")
+            if not best_candidate_url or highest_similarity < 0.3: # 유사도가 30% 미만이면 관련 없는 링크로 간주
+                logging.warning(f"  -> ⚠️ 유효한 기사 링크를 찾지 못함 (최고 유사도: {highest_similarity:.2f}): {entry['rss_title']}")
                 return None
             
-            validated_url = best_candidate
+            validated_url = self._clean_url(best_candidate_url)
+            if not validated_url:
+                logging.warning(f"  -> ⚠️ 선택된 링크가 광고로 필터링됨: {best_candidate_url}")
+                return None
+
             article = Article(validated_url)
             article.download()
             article.parse()
@@ -314,7 +324,7 @@ class NewsService:
                 return None
 
             final_title = article.title if article.title else entry['rss_title']
-            logging.info(f"  -> ✅ 최종 URL/제목 확보: {final_title}")
+            logging.info(f"  -> ✅ 최종 URL/제목 확보 (유사도: {highest_similarity:.2f}): {final_title}")
 
             return {
                 'title': final_title,
@@ -323,9 +333,6 @@ class NewsService:
                 'image_url': self.scraper.get_image_url(validated_url),
                 'full_text': article.text
             }
-        except ArticleException as e:
-            logging.error(f"  -> 🚨 기사 처리 라이브러리 오류(ArticleException): {e}")
-            return None
         except Exception:
             logging.error(f"  -> 🚨 URL 처리 중 예외 발생: {entry['rss_title']}", exc_info=True)
             return None
@@ -430,3 +437,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
