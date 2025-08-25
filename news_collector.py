@@ -243,7 +243,8 @@ class NewsService:
             
             if not article.text or not article.title: return None
 
-            image_url = self.scraper.get_image_url(article.soup, article.url)
+            # ⬇️⬇️⬇️ 이 한 줄만 수정되었습니다! (article.soup -> article.html) ⬇️⬇️⬇️
+            image_url = self.scraper.get_image_url(article.html, article.url)
             
             return {
                 'title': article.title,
@@ -252,7 +253,7 @@ class NewsService:
                 'image_url': image_url,
                 'full_text': article.text
             }
-        except Exception:
+        except Exception as e:
             logging.error(f"  -> 🚨 기사 처리 중 오류: {article_info.get('title')}", exc_info=True)
             return None
 
@@ -345,3 +346,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
