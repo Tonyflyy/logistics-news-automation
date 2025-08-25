@@ -19,6 +19,8 @@ from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from zoneinfo import ZoneInfo
 from newspaper import Article, ArticleException
+from newspaper.article import ArticleDownloadState
+
 
 # 구글 인증 관련
 from google.auth.transport.requests import Request
@@ -411,4 +413,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
