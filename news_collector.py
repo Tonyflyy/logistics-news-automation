@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 
+import openai
 # 서드파티 라이브러리
 import requests
 from requests.adapters import HTTPAdapter
@@ -142,23 +143,52 @@ class NewsScraper:
 class AIService:
     def __init__(self, config):
         self.config = config
-        if not self.config.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
-        genai.configure(api_key=self.config.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel(self.config.GEMINI_MODEL)
+        # OpenAI API 키 유효성 검사
+        if not self.config.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
+        # OpenAI 클라이언트 초기화
+        self.client = openai.OpenAI(api_key=self.config.OPENAI_API_KEY)
+    def _call_openai_api(self, system_prompt, user_prompt, is_json=False):
+        """OpenAI API를 호출하는 중앙 함수"""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        try:
+            response_format = {"type": "json_object"} if is_json else {"type": "text"}
+            
+            response = self.client.chat.completions.create(
+                model=self.config.OPENAI_MODEL,
+                messages=messages,
+                temperature=0.7,
+                response_format=response_format
+            )
+            content = response.choices[0].message.content.strip()
+            
+            if is_json:
+                # JSON 형식인지 다시 한번 확인
+                json.loads(content)
+            
+            return content
+        except Exception as e:
+            logging.error(f" -> 🚨 OpenAI API 호출 중 예외 발생: {e}", exc_info=True)
+            return None    
 
     def generate_single_summary(self, article_title: str, article_text: str) -> str:
-        logging.info(f" -> AI 요약 생성 요청: {article_title}")
+        logging.info(f" -> ChatGPT 요약 생성 요청: {article_title}")
         if not article_text or len(article_text) < 100:
             logging.warning(" -> ⚠️ 텍스트가 너무 짧아 요약을 건너뜁니다.")
             return "요약 정보를 생성할 수 없습니다."
-        try:
-            prompt = f"당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다. 아래 제목과 본문을 가진 뉴스 기사의 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요.\n\n[제목]: {article_title}\n[본문]:\n{article_text[:2000]}"
-            response = self.model.generate_content(prompt)
-            logging.info(f" -> ✅ AI 요약 생성 성공.")
-            return response.text.strip()
-        except Exception:
-            logging.error(" -> 🚨 AI 요약 API 호출 중 예외 발생", exc_info=True)
+        
+        system_prompt = "당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다. 뉴스 기사 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요."
+        user_prompt = f"[제목]: {article_title}\n[본문]:\n{article_text[:2000]}"
+        
+        summary = self._call_openai_api(system_prompt, user_prompt)
+        
+        if summary:
+            logging.info(" -> ✅ ChatGPT 요약 생성 성공.")
+            return summary
+        else:
             return "AI 요약 중 오류가 발생했습니다."
 
     def _generate_content_with_retry(self, prompt, is_json=False):
@@ -176,11 +206,10 @@ class AIService:
         return None
 
     def select_top_news(self, news_list):
-        logging.info(f"AI 뉴스 선별 시작... (대상: {len(news_list)}개)")
+        logging.info(f"ChatGPT 뉴스 선별 시작... (대상: {len(news_list)}개)")
         context = "\n\n".join([f"기사 #{i}\n제목: {news['title']}\n요약: {news['summary']}" for i, news in enumerate(news_list)])
         
-        # ⬇️ (수정) AI에게 주는 프롬프트를 훨씬 더 구체적이고 명확하게 변경합니다.
-        prompt = f"""
+        system_prompt = """
         당신은 대한민국 최고의 '물류 전문' 뉴스 에디터입니다. 
         당신의 임무는 화물차 운송, 주선, 육상 운송, 공급망 관리(SCM) 분야의 종사자들에게 가장 실용적이고 중요한 최신 정보를 선별하여 제공하는 것입니다.
         아래 뉴스 목록을 분석하여 다음의 엄격한 기준에 따라 최종 Top 10 뉴스를 선정해주세요.
@@ -198,35 +227,49 @@ class AIService:
         4.  **중복 제거:** 내용이 사실상 동일한 뉴스는 단 하나만 선정합니다. 제목이 가장 구체적이고 정보가 풍부한 기사를 대표로 선택하세요.
         5.  **중요도 순서:** 위 기준을 모두 만족하는 후보들 중에서, 업계 종사자에게 가장 큰 영향을 미칠 수 있는 중요도 순서대로 정렬해주세요.
 
-        [뉴스 목록]
-        {context}
-
         [출력 형식]
         - 반드시 JSON 형식으로만 응답해야 합니다.
         - 'selected_indices' 키에 당신이 최종 선정한 기사 10개의 번호(인덱스)를 **중요도 순서대로** 숫자 배열로 담아주세요.
-        예: {{"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}}
+        예: {"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}
         """
-        # ⬆️ 프롬프트 수정 완료
+        user_prompt = f"[뉴스 목록]\n{context}"
+        
+        response_text = self._call_openai_api(system_prompt, user_prompt, is_json=True)
 
-        response_text = self._generate_content_with_retry(prompt, is_json=True)
         if response_text:
             try:
                 selected_indices = json.loads(response_text).get('selected_indices', [])
                 top_news = [news_list[i] for i in selected_indices if i < len(news_list)]
-                logging.info(f"✅ AI가 {len(top_news)}개 뉴스를 선별했습니다.")
+                logging.info(f"✅ ChatGPT가 {len(top_news)}개 뉴스를 선별했습니다.")
                 return top_news
             except (json.JSONDecodeError, KeyError) as e:
-                logging.error(f"❌ AI 응답 파싱 실패: {e}. 상위 10개 뉴스를 임의로 선택합니다.")
+                logging.error(f"❌ ChatGPT 응답 파싱 실패: {e}. 상위 10개 뉴스를 임의로 선택합니다.")
         return news_list[:10]
 
     def generate_briefing(self, news_list):
-        logging.info("AI 브리핑 생성 시작...")
+        logging.info("ChatGPT 브리핑 생성 시작...")
         context = "\n\n".join([f"제목: {news['title']}\n요약: {news.get('ai_summary') or news.get('summary')}" for news in news_list])
-        prompt = f"당신은 탁월한 통찰력을 가진 IT/경제 뉴스 큐레이터입니다. 아래 뉴스 목록을 분석하여, 독자를 위한 매우 간결하고 읽기 쉬운 '데일리 브리핑'을 작성해주세요. **출력 형식 규칙:** 1. '에디터 브리핑'은 '## 에디터 브리핑' 헤더로 시작하며, 오늘 뉴스의 핵심을 2~3 문장으로 요약합니다. 2. '주요 뉴스 분석'은 '## 주요 뉴스 분석' 헤더로 시작합니다. 3. 주요 뉴스 분석에서는 가장 중요한 뉴스 카테고리 2~3개를 '###' 헤더로 구분합니다. 4. 각 카테고리 안에서는, 관련된 여러 뉴스를 하나의 간결한 문장으로 요약하고 글머리 기호(`*`)를 사용합니다. 5. 문장 안에서 강조하고 싶은 특정 키워드는 큰따옴표(\" \")로 묶어주세요. [오늘의 뉴스 목록]\n{context}"
-        briefing = self._generate_content_with_retry(prompt)
-        if briefing: logging.info("✅ AI 브리핑 생성 성공!")
-        else: logging.warning("⚠️ AI 브리핑 생성 실패.")
-        return briefing
+        
+        system_prompt = """
+        당신은 탁월한 통찰력을 가진 물류/경제 뉴스 큐레이터입니다. 아래 뉴스 목록을 분석하여, 독자를 위한 매우 간결하고 읽기 쉬운 '데일리 브리핑'을 마크다운 형식으로 작성해주세요.
+        
+        **출력 형식 규칙:**
+        1. '에디터 브리핑'은 '## 에디터 브리핑' 헤더로 시작하며, 오늘 뉴스의 핵심을 2~3 문장으로 요약합니다.
+        2. '주요 뉴스 분석'은 '## 주요 뉴스 분석' 헤더로 시작합니다.
+        3. 주요 뉴스 분석에서는 가장 중요한 뉴스 카테고리 2~3개를 '###' 헤더로 구분합니다.
+        4. 각 카테고리 안에서는, 관련된 여러 뉴스를 하나의 간결한 문장으로 요약하고 글머리 기호(`*`)를 사용합니다.
+        5. 문장 안에서 강조하고 싶은 특정 키워드는 큰따옴표(" ")로 묶어주세요.
+        """
+        user_prompt = f"[오늘의 뉴스 목록]\n{context}"
+
+        briefing = self._call_openai_api(system_prompt, user_prompt)
+        
+        if briefing:
+            logging.info("✅ ChatGPT 브리핑 생성 성공!")
+            return briefing
+        else:
+            logging.warning("⚠️ ChatGPT 브리핑 생성 실패.")
+            return "데일리 브리핑 생성에 실패했습니다."
 
 class NewsService:
     def __init__(self, config, scraper, ai_service):
@@ -493,4 +536,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
