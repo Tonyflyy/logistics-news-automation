@@ -63,12 +63,10 @@ class Config:
     # 검색 키워드
     KEYWORDS = [
         # 한글 키워드
-        '화물', '물류', '운송', '배송', '택배', '공급망', '서플라이체인',
-        '물류센터', '풀필먼트', '콜드체인', '라스트마일', '화물차', '트럭',
-        '물류 스타트업', '화물 플랫폼', '해운', '항공화물',
-        # 영문 키워드 (새로 추가)
-        'logistics', 'supply chain', 'freight', 'cargo', 'shipping',
-        'fulfillment', 'warehouse', 'last-mile', 'trucking',
+        '화물', '물류', '운송', '배송',  '정보망','주선사','화주',
+        '물류센터', '화물차', 
+        '물류 스타트업', '화물 플랫폼'
+        
     ]
 
     UNWANTED_IMAGE_PATTERNS = [
@@ -91,4 +89,5 @@ class Config:
         'doubleclick.net',
 
     ]
+
 
