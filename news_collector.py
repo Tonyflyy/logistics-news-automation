@@ -43,7 +43,6 @@ def markdown_to_html(text):
 
 # --- 핵심 기능 클래스 ---
 class NewsScraper:
-    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.session = self._create_session()
@@ -165,128 +164,148 @@ class AIService:
         return briefing
 
 class NewsService:
+    def __init__(self, config, scraper, ai_service):
+        self.config = config
+        self.scraper = scraper
+        self.ai_service = ai_service
+        self.sent_links = self._load_sent_links()
 
-    def __init__(self, config, scraper):
-        self.config = config
-        self.scraper = scraper
-        self.sent_links = self._load_sent_links()
+    def _create_stealth_driver(self):
+        chrome_options = Options()
+        chrome_options.page_load_strategy = 'eager'
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--log-level=3")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument(f'--user-agent={random.choice(self.config.USER_AGENTS)}')
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        try:
+            service = ChromeService(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
+                    webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
+            driver.set_page_load_timeout(15)
+            return driver
+        except Exception:
+            return None
 
+    def _load_sent_links(self):
+        try:
+            with open(self.config.SENT_LINKS_FILE, 'r', encoding='utf-8') as f:
+                return set(line.strip() for line in f)
+        except FileNotFoundError:
+            return set()
 
+    def _fetch_google_news_rss(self):
+        print("Google News RSS 피드를 직접 수집합니다...")
+        query = " OR ".join([f'"{k}"' for k in self.config.KEYWORDS])
+        url = f"https://news.google.com/rss/search?q={query}+when:2d&hl=ko&gl=KR&ceid=KR:ko"
+        headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'xml')
+        return [{'title': item.title.text, 'link': item.link.text, 'summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
 
-    def _create_stealth_driver(self):
-        chrome_options = Options()
-        chrome_options.page_load_strategy = 'eager'
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--log-level=3")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument(f'--user-agent={random.choice(self.config.USER_AGENTS)}')
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    def get_fresh_news(self):
+        try:
+            all_articles = self._fetch_google_news_rss()
+            print(f"총 {len(all_articles)}개의 새로운 후보 기사를 발견했습니다.")
+            
+            # ⬇️⬇️⬇️ sent_links 필터링을 나중으로 옮겨서, 이미 보낸 기사라도 URL 추출 테스트는 진행되도록 함 ⬇️⬇️⬇️
+            # valid_articles = [article for article in all_articles if article['link'] not in self.sent_links]
+            
+            processed_articles = []
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_article = {executor.submit(self._resolve_and_process_url, article): article for article in all_articles[:50]}
+                for future in as_completed(future_to_article):
+                    result = future.result()
+                    if result:
+                        processed_articles.append(result)
 
-        try:
+            print(f"✅ 총 {len(processed_articles)}개 기사 원본 URL 추출 및 처리 완료.")
+            
+            # 최종적으로 DB와 대조하여 보낸 적 없는 뉴스만 필터링
+            final_news = []
+            seen_urls = set()
+            for news in processed_articles:
+                if news['link'] not in self.sent_links and news['link'] not in seen_urls:
+                    seen_urls.add(news['link'])
+                    final_news.append(news)
+            
+            print(f"✅ 총 {len(final_news)}개의 유효한 새 뉴스를 처리했습니다.")
+            return final_news
+        except Exception as e:
+            print(f"❌ 뉴스 수집 중 심각한 오류 발생: {e}")
+            return []
+            
+    # ⬇️⬇️⬇️ '추측성' 필터였던 _is_valid_article_url 함수는 완전히 삭제했습니다. ⬇️⬇️⬇️
 
-            service = ChromeService(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
-                    webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-            driver.set_page_load_timeout(15)
-            return driver
-        except Exception: return None
+    # ⬇️⬇️⬇️ 광고 필터링과 URL 정제 기능만 남긴 _clean_url 함수 ⬇️⬇️⬇️
+    def _clean_url(self, url: str) -> str | None:
+        """URL에서 불필요한 부분을 제거하고, 광고 도메인인지 확인합니다."""
+        try:
+            parsed = urlparse(url)
+            # 1. 광고 도메인 블랙리스트 확인
+            if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
+                return None
+            
+            # 2. URL의 # 뒤 '책갈피' 부분 제거
+            return parsed._replace(fragment="").geturl()
+        except Exception:
+            return None
 
-    def _load_sent_links(self):
-        try:
-            with open(self.config.SENT_LINKS_FILE, 'r', encoding='utf-8') as f:
-                return set(line.strip() for line in f)
-        except FileNotFoundError:
-            return set()
+    def _resolve_and_process_url(self, entry):
+        driver = None
+        try:
+            driver = self._create_stealth_driver()
+            if not driver: return None
 
+            driver.get(entry['link'])
+            
+            # ⬇️⬇️⬇️ 핵심 변경: 더 정확한 XPath 선택자로 메인 링크를 특정합니다. ⬇️⬇️⬇️
+            # 'c-wiz'는 구글 리디렉션 페이지의 메인 컨테이너이며, 그 안의 첫번째 링크가 우리가 찾는 링크입니다.
+            wait = WebDriverWait(driver, 10)
+            link_element = wait.until(EC.presence_of_element_located((By.XPATH, "//c-wiz//a")))
+            
+            original_url = link_element.get_attribute('href')
+            
+            validated_url = self._clean_url(original_url)
+            if not validated_url:
+                return None
 
+            article = Article(validated_url)
+            article.download()
+            article.parse()
 
-    def _fetch_google_news_rss(self):
-        print("Google News RSS 피드를 직접 수집합니다...")
-        query = " OR ".join([f'"{k}"' for k in self.config.KEYWORDS])
-        url = f"https://news.google.com/rss/search?q={query}+when:2d&hl=ko&gl=KR&ceid=KR:ko"
-        headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'xml')
-        return [{'title': item.title.text, 'link': item.link.text, 'summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
+            return {
+                'title': entry['title'],
+                'link': validated_url, 'url': validated_url,
+                'summary': BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True)[:150] + "...",
+                'image_url': self.scraper.get_image_url(validated_url),
+                'full_text': article.text
+            }
+        except Exception:
+            return None
+        finally:
+            if driver:
+                driver.quit()
 
-    def get_fresh_news(self):
-        try:
-            all_articles = self._fetch_google_news_rss()
-            print(f"총 {len(all_articles)}개의 새로운 후보 기사를 발견했습니다.")
-            valid_articles = [article for article in all_articles if article['link'] not in self.sent_links]
-            # 병렬 처리를 URL 추출 단계에만 사용
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                future_to_article = {executor.submit(self._resolve_and_process_url, article): article for article in valid_articles[:50]}
-                processed_articles = [future.result() for future in as_completed(future_to_article) if future.result()]
-
-            print(f"✅ 총 {len(processed_articles)}개의 유효한 새 뉴스를 처리했습니다.")
-            return processed_articles
-
-        except Exception as e:
-            print(f"❌ 뉴스 수집 중 심각한 오류 발생: {e}")
-            return []
-
-
-
-    def _clean_and_validate_url(self, url: str) -> str | None:
-        try:
-            parsed = urlparse(url)
-            if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST): return None
-            if not parsed.path or len(parsed.path) <= 5:
-                if not any(allowed in parsed.netloc for allowed in ['hyundai.co.kr']): return None
-            return parsed._replace(fragment="").geturl()
-        except Exception: return None
-
-
-    def _resolve_and_process_url(self, entry):
-        driver = None
-        try:
-            driver = self._create_stealth_driver()
-            if not driver: return None
-
-            driver.get(entry['link'])
-            wait = WebDriverWait(driver, 10)
-            link_element = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'a')))
-            original_url = link_element.get_attribute('href')
-            validated_url = self._clean_and_validate_url(original_url)
-            if not validated_url: return None
-
-            article = Article(validated_url)
-            article.download()
-            article.parse()
-
-            return {
-                'title': entry['title'],
-                'link': validated_url, 'url': validated_url,
-                'summary': BeautifulSoup(entry.get('summary', ''), 'lxml').get_text(strip=True)[:150] + "...",
-                'image_url': self.scraper.get_image_url(validated_url),
-                'full_text': article.text
-            }
-
-        except Exception: return None
-        finally:
-            if driver: driver.quit()
-
-
-    def update_sent_links_log(self, news_list):
-        links = [news['link'] for news in news_list]
-        try:
-            with open(self.config.SENT_LINKS_FILE, 'a', encoding='utf-8') as f:
-                for link in links: f.write(link + '\n')
-            print(f"✅ {len(links)}개 링크를 발송 기록에 추가했습니다.")
-        except Exception as e:
-            print(f"❌ 발송 기록 파일 업데이트 실패: {e}")
+    def update_sent_links_log(self, news_list):
+        links = [news['link'] for news in news_list]
+        try:
+            with open(self.config.SENT_LINKS_FILE, 'a', encoding='utf-8') as f:
+                for link in links: f.write(link + '\n')
+            print(f"✅ {len(links)}개 링크를 발송 기록에 추가했습니다.")
+        except Exception as e:
+            print(f"❌ 발송 기록 파일 업데이트 실패: {e}")
 
 class EmailService:
-    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
+
     def _get_credentials(self):
         creds = None
         if os.path.exists(self.config.TOKEN_FILE):
@@ -300,10 +319,12 @@ class EmailService:
             with open(self.config.TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
         return creds
+
     def create_email_body(self, news_list, ai_briefing_html, today_date_str):
         env = Environment(loader=FileSystemLoader('.'))
         template = env.get_template('email_template.html')
         return template.render(news_list=news_list, today_date=today_date_str, ai_briefing=ai_briefing_html)
+
     def send_email(self, subject, body):
         if not self.config.RECIPIENT_LIST:
             print("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
@@ -323,14 +344,14 @@ class EmailService:
 
 def main():
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
-    news_service = None
     try:
         config = Config()
         news_scraper = NewsScraper(config)
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
+        email_service = EmailService(config)
 
-        # 1. 모든 뉴스 후보 수집 및 원문 텍스트 확보
+        # 1. 뉴스 후보 수집 및 원문 텍스트 확보
         all_news = news_service.get_fresh_news()
         if not all_news:
             print("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
@@ -352,7 +373,6 @@ def main():
         ai_briefing_html = markdown_to_html(ai_briefing_md)
 
         # 5. 이메일 발송
-        email_service = EmailService(config)
         today_str = get_kst_today_str()
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_10_news_final)}"
         email_body = email_service.create_email_body(top_10_news_final, ai_briefing_html, today_str)
@@ -366,12 +386,6 @@ def main():
         print(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
         print(f"🔥 치명적인 오류 발생: {e}")
-    finally:
-        # 이 구조에서는 NewsService가 드라이버를 직접 소유하지 않으므로 del 필요 없음
-        pass
 
 if __name__ == "__main__":
     main()
-
-
-
