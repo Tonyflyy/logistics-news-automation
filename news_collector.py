@@ -4,17 +4,22 @@ from email.mime.text import MIMEText
 from urllib.parse import urlparse, urljoin
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# --- ⬇️ (추가) 이메일 이미지 첨부를 위한 라이브러리 ⬇️ ---
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+
 # 서드파티 라이브러리
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import ssl  # ⬇️ SSL 오류 해결을 위해 추가
+import ssl
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from zoneinfo import ZoneInfo
 from newspaper import Article, ArticleException
-# 🆕 변경: Selenium 관련 import 전체 제거 (webdriver, ChromeService, webdriver_manager, selenium_stealth, By, WebDriverWait, EC 삭제)
+
 # 구글 인증 관련
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -23,93 +28,76 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.generativeai as genai
 from config import Config
-# --- ⬇️ SSL 오류 해결을 위한 설정 추가 ⬇️ ---
+
 class CustomHttpAdapter(HTTPAdapter):
     def __init__(self, *args, **kwargs):
         self.ssl_context = ssl.create_default_context()
         self.ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
         super().__init__(*args, **kwargs)
+
     def init_poolmanager(self, connections, maxsize, block=False):
         self.poolmanager = requests.packages.urllib3.poolmanager.PoolManager(
             num_pools=connections, maxsize=maxsize,
             block=block, ssl_context=self.ssl_context)
-# --- 로깅 설정 함수 ---
+
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-# --- 유틸리티 함수 ---
+
 def get_kst_today_str():
     return datetime.now(ZoneInfo('Asia/Seoul')).strftime("%Y-%m-%d")
+
 def markdown_to_html(text):
     return markdown.markdown(text) if text else ""
-# --- 핵심 기능 클래스 ---
+
 class NewsScraper:
     def __init__(self, config):
         self.config = config
         self.session = self._create_session()
+
     def _create_session(self):
         session = requests.Session()
-        # ⬇️ SSL 오류 해결을 위해 CustomHttpAdapter 사용 ⬇️
         session.mount('https://', CustomHttpAdapter())
         return session
+
     def get_image_url(self, article_url: str) -> str:
         logging.info(f" -> 이미지 스크래핑 시작: {article_url[:80]}...")
         try:
-            headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
+            headers = {"User-Agent": random.choice(self.config.USER_AGENTS)}
             response = self.session.get(article_url, headers=headers, timeout=10, allow_redirects=True)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
-           
-            # 🆕 변경: meta_image 추출 시 로그 추가 (디버깅: meta 태그 유무 확인)
+            
             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
             if meta_image and meta_image.get("content"):
                 meta_url = self._resolve_url(article_url, meta_image["content"])
-                logging.info(f" -> meta 이미지 후보 발견: {meta_url[:80]}...")  # 🆕 로그: 후보 URL 기록
-                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url): 
-                    logging.info(f" -> ✅ meta 이미지 유효성 통과: {meta_url[:80]}...")  # 🆕 로그: 성공 시 기록
-                    return meta_url
-                else:
-                    logging.warning(f" -> ⚠️ meta 이미지 유효성 실패: {meta_url[:80]}...")  # 🆕 로그: 실패 시 이유 기록
-            
-            # 🆕 변경: figure/picture 태그 순회 시 로그 추가 (디버깅: 태그 수 및 후보 확인)
-            figure_tags = soup.select('figure > img, picture > img', limit=5)
-            logging.info(f" -> figure/picture 태그 발견: {len(figure_tags)}개")  # 🆕 로그: 태그 수 기록
-            for tag in figure_tags:
+                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url): return meta_url
+
+            for tag in soup.select('figure > img, picture > img', limit=5):
                 img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
                 if img_url and self._is_valid_candidate(img_url):
                     full_url = self._resolve_url(article_url, img_url)
-                    logging.info(f" -> figure 이미지 후보: {full_url[:80]}...")  # 🆕 로그: 후보 URL 기록
-                    if self._validate_image(full_url): 
-                        logging.info(f" -> ✅ figure 이미지 유효성 통과: {full_url[:80]}...")  # 🆕 로그: 성공 시 기록
-                        return full_url
-                    else:
-                        logging.warning(f" -> ⚠️ figure 이미지 유효성 실패: {full_url[:80]}...")  # 🆕 로그: 실패 시 기록
-           
-            # 🆕 변경: 일반 img 태그 순회 시 로그 추가 (디버깅: 태그 수 및 후보 확인)
-            img_tags = soup.find_all("img", limit=10)
-            logging.info(f" -> 일반 img 태그 발견: {len(img_tags)}개")  # 🆕 로그: 태그 수 기록
-            for img in img_tags:
+                    if self._validate_image(full_url): return full_url
+            
+            for img in soup.find_all("img", limit=10):
                 img_url = img.get("src") or img.get("data-src")
                 if img_url and self._is_valid_candidate(img_url):
                     full_url = self._resolve_url(article_url, img_url)
-                    logging.info(f" -> img 이미지 후보: {full_url[:80]}...")  # 🆕 로그: 후보 URL 기록
-                    if self._validate_image(full_url): 
-                        logging.info(f" -> ✅ img 이미지 유효성 통과: {full_url[:80]}...")  # 🆕 로그: 성공 시 기록
-                        return full_url
-                    else:
-                        logging.warning(f" -> ⚠️ img 이미지 유효성 실패: {full_url[:80]}...")  # 🆕 로그: 실패 시 기록
-            
+                    if self._validate_image(full_url): return full_url
+
             logging.warning(f" -> ⚠️ 유효 이미지를 찾지 못함: {article_url[:80]}...")
-            logging.info(f" -> 기본 이미지 반환: {self.config.DEFAULT_IMAGE_URL}")  # 🆕 로그: 기본 이미지 사용 시 기록
             return self.config.DEFAULT_IMAGE_URL
         except Exception:
             logging.error(f" -> 🚨 이미지 추출 중 오류 발생: {article_url[:80]}...", exc_info=True)
             return self.config.DEFAULT_IMAGE_URL
+
     def _resolve_url(self, base_url, image_url):
         if image_url.startswith('//'): return 'https:' + image_url
         return urljoin(base_url, image_url)
+
     def _is_valid_candidate(self, image_url):
         if 'news.google.com' in image_url or 'lh3.googleusercontent.com' in image_url: return False
         return not any(pattern in image_url.lower() for pattern in self.config.UNWANTED_IMAGE_PATTERNS)
+
     def _validate_image(self, image_url):
         try:
             response = self.session.get(image_url, stream=True, timeout=5)
@@ -126,7 +114,9 @@ class NewsScraper:
                 return True
         except Exception:
             return False
+
 class AIService:
+    # (수정 없음, 기존 코드와 동일)
     def __init__(self, config):
         self.config = config
         if not self.config.GEMINI_API_KEY:
@@ -181,17 +171,16 @@ class AIService:
         if briefing: logging.info("✅ AI 브리핑 생성 성공!")
         else: logging.warning("⚠️ AI 브리핑 생성 실패.")
         return briefing
+
 class NewsService:
+    # (수정 없음, 기존 코드와 동일)
     def __init__(self, config, scraper, ai_service):
         self.config = config
         self.scraper = scraper
         self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
-        # 🆕 변경: self.driver 초기화 코드 제거 (Selenium 불필요)
     def __del__(self):
-        # 🆕 변경: driver 종료 코드 제거 (빈 메서드로 유지)
         pass
-    # 🆕 변경: _create_stealth_driver 메서드 전체 제거 (불필요)
     def _load_sent_links(self):
         try:
             with open(self.config.SENT_LINKS_FILE, 'r', encoding='utf-8') as f:
@@ -201,11 +190,10 @@ class NewsService:
         except FileNotFoundError:
             logging.warning("⚠️ 발송 기록 파일이 없어 새로 시작합니다.")
             return set()
-    def _fetch_rss_feeds(self):  # 🆕 변경: 여러 RSS 피드 수집 (변경 없음, 기존 유지)
+    def _fetch_rss_feeds(self):
         logging.info("🆕 여러 RSS 피드를 수집합니다... (총 {}개 소스)".format(len(self.config.RSS_FEEDS)))
         all_entries = []
         headers = {"User-Agent": random.choice(self.config.USER_AGENTS)}
-        
         for rss_url in self.config.RSS_FEEDS:
             try:
                 response = requests.get(rss_url, headers=headers, timeout=15)
@@ -220,20 +208,17 @@ class NewsService:
                 logging.info(f"✅ {rss_url}에서 {len(entries)}개 entry 수집 완료.")
             except Exception as e:
                 logging.warning(f"⚠️ {rss_url} 수집 실패: {e}")
-        
         logging.info(f"총 {len(all_entries)}개의 후보 기사를 발견했습니다.")
         return all_entries
     def get_fresh_news(self):
-        # 🆕 변경: if not self.driver: 부분 제거 (driver 불필요)
         try:
             initial_articles = self._fetch_rss_feeds()
             logging.info(f"총 {len(initial_articles)}개의 새로운 후보 기사를 발견했습니다.")
-           
             processed_articles = []
             for entry in initial_articles[:self.config.MAX_ARTICLES]:
                 if entry['link'] in self.sent_links:
                     continue
-                article_data = self._resolve_and_process_article(entry)  # 🆕 변경: driver 매개변수 제거
+                article_data = self._resolve_and_process_article(entry)
                 if article_data:
                     processed_articles.append(article_data)
             logging.info(f"✅ 총 {len(processed_articles)}개의 유효한 새 뉴스를 처리했습니다.")
@@ -241,7 +226,6 @@ class NewsService:
         except Exception:
             logging.error("❌ 뉴스 수집 중 심각한 오류 발생:", exc_info=True)
             return []
-           
     def _clean_url(self, url: str) -> str | None:
         try:
             parsed = urlparse(url)
@@ -250,7 +234,7 @@ class NewsService:
             return parsed._replace(fragment="").geturl()
         except Exception:
             return None
-    def _resolve_and_process_article(self, entry):  # 🆕 변경: driver 매개변수 제거
+    def _resolve_and_process_article(self, entry):
         logging.info(f"-> URL 처리 시도: {entry['rss_title']}")
         try:
             validated_url = entry['link']
@@ -258,11 +242,9 @@ class NewsService:
             if not cleaned_url:
                 logging.warning(f" -> ⚠️ 유효하지 않은 URL: {entry['rss_title']}")
                 return None
-            
             article = Article(cleaned_url)
             article.download()
             article.parse()
-           
             if not article.text and not article.title:
                 logging.warning(f" -> ⚠️ 기사 내용 추출 실패 (403 Forbidden 등): {cleaned_url}")
                 return None
@@ -289,10 +271,12 @@ class NewsService:
             logging.info(f"✅ {len(links)}개 링크를 발송 기록에 추가했습니다.")
         except Exception as e:
             logging.error("❌ 발송 기록 파일 업데이트 실패:", exc_info=True)
+
 class EmailService:
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
+
     def _get_credentials(self):
         creds = None
         if os.path.exists(self.config.TOKEN_FILE):
@@ -306,26 +290,48 @@ class EmailService:
             with open(self.config.TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
         return creds
+
     def create_email_body(self, news_list, ai_briefing_html, today_date_str):
         env = Environment(loader=FileSystemLoader('.'))
         template = env.get_template('email_template.html')
         return template.render(news_list=news_list, today_date=today_date_str, ai_briefing=ai_briefing_html)
-    def send_email(self, subject, body):
+    
+    # --- ⬇️ (수정) send_email 메소드를 CID 첨부 방식으로 변경 ⬇️ ---
+    def send_email(self, subject, body_html, news_list):
         if not self.config.RECIPIENT_LIST:
             logging.warning("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
             return
         try:
             service = build('gmail', 'v1', credentials=self.credentials)
-            message = MIMEText(body, 'html', 'utf-8')
-            message['To'] = ", ".join(self.config.RECIPIENT_LIST)
-            message['From'] = self.config.SENDER_EMAIL
-            message['Subject'] = subject
-            encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+            # MIMEMultipart 객체로 이메일의 전체 구조를 생성합니다. 'related'는 HTML과 이미지가 연관됨을 의미합니다.
+            msg = MIMEMultipart('related')
+            msg['To'] = ", ".join(self.config.RECIPIENT_LIST)
+            msg['From'] = self.config.SENDER_EMAIL
+            msg['Subject'] = subject
+
+            # HTML 본문을 담는 파트를 생성하고 메시지에 첨부합니다.
+            msg_alternative = MIMEMultipart('alternative')
+            msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
+            msg.attach(msg_alternative)
+
+            # 뉴스 리스트를 순회하며 다운로드된 이미지 데이터를 MIMEImage로 만들어 첨부합니다.
+            for news in news_list:
+                if news.get('image_data'): # 이미지 다운로드에 성공한 경우에만 실행
+                    image = MIMEImage(news['image_data'])
+                    # Content-ID 헤더를 추가합니다. 이 값은 HTML 템플릿의 <img src="cid:...">와 연결됩니다.
+                    image.add_header('Content-ID', f"<{news['cid']}>")
+                    msg.attach(image)
+
+            encoded_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
             create_message = {'raw': encoded_message}
+            
             send_message = service.users().messages().send(userId="me", body=create_message).execute()
             logging.info(f"✅ 이메일 발송 성공! (Message ID: {send_message['id']})")
-        except HttpError as error:
+        except HttpError:
             logging.error("❌ 이메일 발송 실패:", exc_info=True)
+    # --- ⬆️ (수정) send_email 메소드 수정 완료 ⬆️ ---
+
 def main():
     setup_logging()
     logging.info("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
@@ -335,38 +341,70 @@ def main():
         news_scraper = NewsScraper(config)
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
+        
         all_news = news_service.get_fresh_news()
         if not all_news:
             logging.info("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
             return
+            
         top_10_news_base = ai_service.select_top_news(all_news)
         if not top_10_news_base:
             logging.warning("⚠️ AI가 Top 뉴스를 선별하지 못했습니다.")
             return
-           
+            
         logging.info(f"✅ AI Top 10 선별 완료. 선별된 {len(top_10_news_base)}개 뉴스의 개별 AI 요약을 시작합니다...")
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_news = {executor.submit(ai_service.generate_single_summary, news['title'], news['full_text']): news for news in top_10_news_base}
             for future in as_completed(future_to_news):
                 news = future_to_news[future]
                 news['ai_summary'] = future.result()
+        
         ai_briefing_md = ai_service.generate_briefing(top_10_news_base)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
+
+        # --- ⬇️ (추가) 이메일 발송 전, 이미지 다운로드 및 CID 생성 로직 ⬇️ ---
+        logging.info("📧 이메일 발송을 위해 뉴스 이미지를 다운로드합니다...")
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_news = {}
+            # 각 뉴스마다 고유한 Content-ID(cid)를 생성하고 다운로드를 요청합니다.
+            for i, news in enumerate(top_10_news_base):
+                news['cid'] = f"image_{i}_{int(time.time())}" # 유니크한 cid 생성
+                future_to_news[executor.submit(news_scraper.session.get, news['image_url'], timeout=10)] = news
+
+            for future in as_completed(future_to_news):
+                news = future_to_news[future]
+                try:
+                    response = future.result()
+                    response.raise_for_status()
+                    # 성공적으로 다운로드한 이미지 데이터(바이너리)를 딕셔너리에 저장합니다.
+                    news['image_data'] = response.content
+                    logging.info(f" -> ✅ 이미지 다운로드 성공: {news['title'][:30]}...")
+                except Exception as e:
+                    # 실패 시 image_data를 None으로 설정하여 오류를 방지합니다.
+                    news['image_data'] = None
+                    logging.warning(f" -> ⚠️ 이미지 다운로드 실패: {news['title'][:30]}... ({e})")
+        # --- ⬆️ (추가) 이미지 다운로드 로직 완료 ⬆️ ---
+
         email_service = EmailService(config)
         today_str = get_kst_today_str()
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_10_news_base)}"
+        
+        # HTML 본문을 생성합니다. 이제 news_list에는 cid 정보가 포함되어 있습니다.
         email_body = email_service.create_email_body(top_10_news_base, ai_briefing_html, today_str)
-        email_service.send_email(email_subject, email_body)
-       
+        
+        # 이메일을 발송합니다. 수정된 send_email 메소드는 news_list에서 이미지 데이터를 찾아 첨부합니다.
+        email_service.send_email(email_subject, email_body, top_10_news_base)
+        
         news_service.update_sent_links_log(top_10_news_base)
         logging.info("🎉 모든 프로세스가 성공적으로 완료되었습니다.")
+
     except (ValueError, FileNotFoundError) as e:
         logging.critical(f"🚨 설정 또는 파일 오류: {e}")
-    except Exception as e:
+    except Exception:
         logging.critical("🔥 치명적인 오류 발생:", exc_info=True)
     finally:
         if news_service:
             del news_service
+
 if __name__ == "__main__":
     main()
-
