@@ -1,30 +1,20 @@
 # main.py
-import os, base64, markdown, json, time, random, re, logging
-from datetime import datetime
+import os, base64, markdown, json, time, random, re, logging, feedparser
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from urllib.parse import urlparse, urljoin
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from difflib import SequenceMatcher
 
 # 서드파티 라이브러리
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import ssl # ⬇️ SSL 오류 해결을 위해 추가
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from zoneinfo import ZoneInfo
 from newspaper import Article, ArticleException
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
-from selenium_stealth import stealth
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 # 구글 인증 관련
 from google.auth.transport.requests import Request
@@ -36,19 +26,7 @@ import google.generativeai as genai
 
 from config import Config
 
-# --- ⬇️ SSL 오류 해결을 위한 설정 추가 ⬇️ ---
-class CustomHttpAdapter(HTTPAdapter):
-    def __init__(self, *args, **kwargs):
-        self.ssl_context = ssl.create_default_context()
-        self.ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
-        super().__init__(*args, **kwargs)
-
-    def init_poolmanager(self, connections, maxsize, block=False):
-        self.poolmanager = requests.packages.urllib3.poolmanager.PoolManager(
-            num_pools=connections, maxsize=maxsize,
-            block=block, ssl_context=self.ssl_context)
-
-# --- 로깅 설정 함수 ---
+# --- 로깅 설정 ---
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
@@ -67,48 +45,38 @@ class NewsScraper:
 
     def _create_session(self):
         session = requests.Session()
-        # ⬇️ SSL 오류 해결을 위해 CustomHttpAdapter 사용 ⬇️
-        session.mount('https://', CustomHttpAdapter())
+        retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
         return session
 
-    def get_image_url(self, article_url: str) -> str:
-        logging.info(f"  -> 이미지 스크래핑 시작: {article_url[:80]}...")
+    def get_image_url(self, soup, article_url):
         try:
-            headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
-            response = self.session.get(article_url, headers=headers, timeout=10, allow_redirects=True)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "lxml")
-            
             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
             if meta_image and meta_image.get("content"):
                 meta_url = self._resolve_url(article_url, meta_image["content"])
-                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url): return meta_url
+                if self._validate_image(meta_url): return meta_url
 
             for tag in soup.select('figure > img, picture > img', limit=5):
                 img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
-                if img_url and self._is_valid_candidate(img_url):
+                if img_url:
                     full_url = self._resolve_url(article_url, img_url)
                     if self._validate_image(full_url): return full_url
             
             for img in soup.find_all("img", limit=10):
                 img_url = img.get("src") or img.get("data-src")
-                if img_url and self._is_valid_candidate(img_url):
+                if img_url:
                     full_url = self._resolve_url(article_url, img_url)
                     if self._validate_image(full_url): return full_url
-
-            logging.warning(f"  -> ⚠️ 유효 이미지를 찾지 못함: {article_url[:80]}...")
+            
             return self.config.DEFAULT_IMAGE_URL
         except Exception:
-            logging.error(f"  -> 🚨 이미지 추출 중 오류 발생: {article_url[:80]}...", exc_info=True)
             return self.config.DEFAULT_IMAGE_URL
 
     def _resolve_url(self, base_url, image_url):
         if image_url.startswith('//'): return 'https:' + image_url
         return urljoin(base_url, image_url)
-
-    def _is_valid_candidate(self, image_url):
-        if 'news.google.com' in image_url or 'lh3.googleusercontent.com' in image_url: return False
-        return not any(pattern in image_url.lower() for pattern in self.config.UNWANTED_IMAGE_PATTERNS)
 
     def _validate_image(self, image_url):
         try:
@@ -120,9 +88,6 @@ class NewsScraper:
             with Image.open(img_data) as img:
                 width, height = img.size
                 if width < self.config.MIN_IMAGE_WIDTH or height < self.config.MIN_IMAGE_HEIGHT: return False
-                aspect_ratio = width / height
-                if aspect_ratio > 4.0 or aspect_ratio < 0.25: return False
-                if aspect_ratio < 1.2: return False
                 return True
         except Exception:
             return False
@@ -194,147 +159,96 @@ class NewsService:
         self.scraper = scraper
         self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
-        self.driver = self._create_stealth_driver()
-
-    def __del__(self):
-        if self.driver:
-            logging.info("브라우저 드라이버를 종료합니다.")
-            self.driver.quit()
-
-    def _create_stealth_driver(self):
-        logging.info("ℹ️ 스텔스 브라우저 드라이버를 초기화합니다 (최초 1회 실행)...")
-        chrome_options = Options()
-        chrome_options.page_load_strategy = 'eager'
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--log-level=3")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument(f'--user-agent={random.choice(self.config.USER_AGENTS)}')
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        try:
-            service = ChromeService(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
-                    webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-            driver.set_page_load_timeout(20)
-            logging.info("✅ 스텔스 브라우저 드라이버 초기화 완료.")
-            return driver
-        except Exception:
-            logging.critical("🚨🚨🚨 드라이버 생성에 치명적인 오류가 발생했습니다!", exc_info=True)
-            return None
 
     def _load_sent_links(self):
         try:
             with open(self.config.SENT_LINKS_FILE, 'r', encoding='utf-8') as f:
-                links = set(line.strip() for line in f)
-                logging.info(f"✅ {len(links)}개 발송 기록 로드 완료.")
-                return links
+                return set(line.strip() for line in f)
         except FileNotFoundError:
-            logging.warning("⚠️ 발송 기록 파일이 없어 새로 시작합니다.")
             return set()
 
-    def _fetch_google_news_rss(self):
-        logging.info("Google News RSS 피드를 직접 수집합니다...")
-        query = " OR ".join([f'"{k}"' for k in self.config.KEYWORDS])
-        url = f"https://news.google.com/rss/search?q={query}+when:2d&hl=ko&gl=KR&ceid=KR:ko"
-        headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'xml')
-        return [{'rss_title': item.title.text, 'google_link': item.link.text, 'rss_summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
-
     def get_fresh_news(self):
-        if not self.driver:
-            logging.critical("❌ 드라이버가 없어 뉴스 수집을 중단합니다.")
-            return []
-            
         try:
-            initial_articles = self._fetch_google_news_rss()
-            logging.info(f"총 {len(initial_articles)}개의 새로운 후보 기사를 발견했습니다.")
-            
-            processed_articles = []
-            for entry in initial_articles[:50]:
-                if entry['google_link'] in self.sent_links:
-                    continue
-                article_data = self._resolve_and_process_article(self.driver, entry)
-                if article_data:
-                    processed_articles.append(article_data)
+            all_articles = self._fetch_articles_from_rss_feeds()
+            logging.info(f"총 {len(all_articles)}개의 후보 기사를 수집했습니다.")
 
+            # 이미 보낸 링크와 중복 링크를 1차로 필터링
+            unique_articles = []
+            seen_links = set()
+            for article in all_articles:
+                if article['link'] not in self.sent_links and article['link'] not in seen_links:
+                    seen_links.add(article['link'])
+                    unique_articles.append(article)
+            
+            logging.info(f"중복 제외 후 {len(unique_articles)}개의 기사를 처리합니다.")
+
+            # 병렬 처리를 통해 각 기사의 상세 정보(본문, 이미지)를 가져옴
+            processed_articles = []
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_article = {executor.submit(self._process_single_article, article): article for article in unique_articles}
+                for future in as_completed(future_to_article):
+                    result = future.result()
+                    if result:
+                        processed_articles.append(result)
+            
             logging.info(f"✅ 총 {len(processed_articles)}개의 유효한 새 뉴스를 처리했습니다.")
             return processed_articles
-        except Exception:
+        except Exception as e:
             logging.error("❌ 뉴스 수집 중 심각한 오류 발생:", exc_info=True)
             return []
-            
-    def _clean_url(self, url: str) -> str | None:
+    
+    def _fetch_articles_from_rss_feeds(self):
+        """RSS 피드 목록을 순회하며 모든 기사 항목을 가져옵니다."""
+        all_entries = []
+        for feed_url in self.config.RSS_FEEDS:
+            try:
+                logging.info(f"-> RSS 피드 수집 중: {feed_url}")
+                feed = feedparser.parse(feed_url, agent=random.choice(self.config.USER_AGENTS))
+                cutoff_date = datetime.now(ZoneInfo('UTC')) - timedelta(days=2)
+                
+                for entry in feed.entries:
+                    published_time = datetime(*entry.published_parsed[:6], tzinfo=ZoneInfo('UTC')) if hasattr(entry, 'published_parsed') else datetime.now(ZoneInfo('UTC'))
+                    if published_time > cutoff_date:
+                        all_entries.append({
+                            'title': entry.title,
+                            'link': entry.link,
+                            'summary': BeautifulSoup(entry.summary, 'lxml').get_text(strip=True) if hasattr(entry, 'summary') else ""
+                        })
+            except Exception:
+                logging.warning(f"  -> ⚠️ RSS 피드 처리 실패: {feed_url}")
+        return all_entries
+
+    def _process_single_article(self, article_info):
+        """단일 기사를 받아 키워드 필터링, 본문 및 이미지 추출을 수행합니다."""
         try:
-            parsed = urlparse(url)
-            if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
-                return None
-            return parsed._replace(fragment="").geturl()
-        except Exception:
-            return None
-
-    def _resolve_and_process_article(self, driver, entry):
-        logging.info(f"-> URL 처리 시도: {entry['rss_title']}")
-        try:
-            driver.get(entry['google_link'])
-            wait = WebDriverWait(driver, 10)
-            all_links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
-            
-            best_candidate_url = None
-            highest_similarity = 0.0
-
-            logging.info(f"  -> 페이지에서 {len(all_links)}개의 링크 후보를 DNA 대조합니다...")
-            for link_element in all_links:
-                try:
-                    href = link_element.get_attribute('href')
-                    text = link_element.text.strip()
-                    
-                    if not href or not text or href.startswith(('mailto:', 'javascript:')) or "google.com" in href:
-                        continue
-
-                    # ⬇️⬇️⬇️ 핵심 변경점: RSS 제목과 링크 텍스트의 유사도를 계산 ⬇️⬇️⬇️
-                    similarity = SequenceMatcher(None, entry['rss_title'], text).ratio()
-                    logging.debug(f"    -> 후보: '{text[:30]}...' (유사도: {similarity:.2f})")
-
-                    if similarity > highest_similarity:
-                        highest_similarity = similarity
-                        best_candidate_url = href
-                except Exception:
-                    continue
-            
-            if not best_candidate_url or highest_similarity < 0.3: # 유사도가 30% 미만이면 관련 없는 링크로 간주
-                logging.warning(f"  -> ⚠️ 유효한 기사 링크를 찾지 못함 (최고 유사도: {highest_similarity:.2f}): {entry['rss_title']}")
+            # 1. 키워드 필터링
+            search_text = article_info['title'] + " " + article_info['summary']
+            if not any(keyword.lower() in search_text.lower() for keyword in self.config.KEYWORDS):
                 return None
             
-            validated_url = self._clean_url(best_candidate_url)
-            if not validated_url:
-                logging.warning(f"  -> ⚠️ 선택된 링크가 광고로 필터링됨: {best_candidate_url}")
-                return None
-
-            article = Article(validated_url)
+            logging.info(f"  -> 키워드 일치, 처리 시작: {article_info['title']}")
+            
+            # 2. newspaper3k를 이용해 본문 및 최종 정보 추출
+            article = Article(article_info['link'])
             article.download()
             article.parse()
             
-            if not article.text and not article.title:
-                logging.warning(f"  -> ⚠️ 기사 내용 추출 실패 (403 Forbidden 등): {validated_url}")
-                return None
+            # 유효하지 않은 기사(내용이 없거나 제목이 없는 경우) 제외
+            if not article.text or not article.title: return None
 
-            final_title = article.title if article.title else entry['rss_title']
-            logging.info(f"  -> ✅ 최종 URL/제목 확보 (유사도: {highest_similarity:.2f}): {final_title}")
-
+            # 3. 이미지 추출
+            # newspaper3k가 파싱한 HTML(soup)을 이미지 스크래퍼에 전달
+            image_url = self.scraper.get_image_url(article.soup, article.url)
+            
             return {
-                'title': final_title,
-                'link': validated_url, 'url': validated_url,
-                'summary': BeautifulSoup(entry.get('rss_summary', ''), 'lxml').get_text(strip=True)[:150] + "...",
-                'image_url': self.scraper.get_image_url(validated_url),
+                'title': article.title,
+                'link': article.url,
+                'summary': article_info['summary'][:150] + "...",
+                'image_url': image_url,
                 'full_text': article.text
             }
         except Exception:
-            logging.error(f"  -> 🚨 URL 처리 중 예외 발생: {entry['rss_title']}", exc_info=True)
+            # logging.error(f"  -> 🚨 기사 처리 중 오류: {article_info.get('title')}", exc_info=True)
             return None
 
     def update_sent_links_log(self, news_list):
@@ -351,7 +265,6 @@ class EmailService:
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
-
     def _get_credentials(self):
         creds = None
         if os.path.exists(self.config.TOKEN_FILE):
@@ -365,12 +278,10 @@ class EmailService:
             with open(self.config.TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
         return creds
-
     def create_email_body(self, news_list, ai_briefing_html, today_date_str):
         env = Environment(loader=FileSystemLoader('.'))
         template = env.get_template('email_template.html')
         return template.render(news_list=news_list, today_date=today_date_str, ai_briefing=ai_briefing_html)
-
     def send_email(self, subject, body):
         if not self.config.RECIPIENT_LIST:
             logging.warning("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
@@ -391,39 +302,41 @@ class EmailService:
 def main():
     setup_logging()
     logging.info("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
-    news_service = None
     try:
         config = Config()
         news_scraper = NewsScraper(config)
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
 
+        # 1. 뉴스 후보 수집 및 상세 정보 처리
         all_news = news_service.get_fresh_news()
         if not all_news:
             logging.info("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
             return
 
+        # 2. AI를 이용해 Top 10 뉴스 선별
         top_10_news_base = ai_service.select_top_news(all_news)
         if not top_10_news_base:
             logging.warning("⚠️ AI가 Top 뉴스를 선별하지 못했습니다.")
             return
             
+        # 3. 선별된 Top 10 뉴스의 AI 요약 생성 (API 호출 최소화)
         logging.info(f"✅ AI Top 10 선별 완료. 선별된 {len(top_10_news_base)}개 뉴스의 개별 AI 요약을 시작합니다...")
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_to_news = {executor.submit(ai_service.generate_single_summary, news['title'], news['full_text']): news for news in top_10_news_base}
-            for future in as_completed(future_to_news):
-                news = future_to_news[future]
-                news['ai_summary'] = future.result()
+        for news in top_10_news_base:
+            news['ai_summary'] = ai_service.generate_single_summary(news['title'], news['full_text'])
 
+        # 4. 전체 브리핑 생성
         ai_briefing_md = ai_service.generate_briefing(top_10_news_base)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
 
+        # 5. 이메일 발송
         email_service = EmailService(config)
         today_str = get_kst_today_str()
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_10_news_base)}"
         email_body = email_service.create_email_body(top_10_news_base, ai_briefing_html, today_str)
         email_service.send_email(email_subject, email_body)
         
+        # 6. 발송 기록 업데이트
         news_service.update_sent_links_log(top_10_news_base)
 
         logging.info("🎉 모든 프로세스가 성공적으로 완료되었습니다.")
@@ -431,10 +344,6 @@ def main():
         logging.critical(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
         logging.critical("🔥 치명적인 오류 발생:", exc_info=True)
-    finally:
-        if news_service:
-            del news_service
 
 if __name__ == "__main__":
     main()
-
