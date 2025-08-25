@@ -26,7 +26,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import google.generativeai as genai
+# (수정) 불필요한 genai import 제거
+# import google.generativeai as genai 
 from config import Config
 
 class CustomHttpAdapter(HTTPAdapter):
@@ -59,7 +60,6 @@ class NewsScraper:
         session.mount('https://', CustomHttpAdapter())
         return session
 
-    # ⬇️ (수정) 이미지 스크레이핑 로직 전체를 개선합니다.
     def get_image_url(self, article_url: str) -> str:
         logging.info(f" -> 이미지 스크래핑 시작: {article_url[:80]}...")
         try:
@@ -68,7 +68,6 @@ class NewsScraper:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
             
-            # 1순위: Open Graph 및 트위터 카드 메타 태그 (가장 정확도가 높음)
             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
             if meta_image and meta_image.get("content"):
                 meta_url = self._resolve_url(article_url, meta_image["content"])
@@ -76,7 +75,6 @@ class NewsScraper:
                     logging.info(" -> ✅ 1순위(메타 태그)에서 고화질 이미지 발견!")
                     return meta_url
 
-            # 2순위: 본문 내의 figure 또는 picture 태그 (주로 대표 이미지)
             for tag in soup.select('figure > img, picture > img, .article_photo img, .photo_center img', limit=5):
                 img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
                 if img_url and self._is_valid_candidate(img_url):
@@ -85,7 +83,6 @@ class NewsScraper:
                         logging.info(" -> ✅ 2순위(본문 대표 태그)에서 고화질 이미지 발견!")
                         return full_url
             
-            # 3순위: 본문의 모든 img 태그 (가장 마지막 수단)
             for img in soup.find_all("img", limit=10):
                 img_url = img.get("src") or img.get("data-src")
                 if img_url and self._is_valid_candidate(img_url):
@@ -106,57 +103,45 @@ class NewsScraper:
 
     def _is_valid_candidate(self, image_url):
         if 'news.google.com' in image_url or 'lh3.googleusercontent.com' in image_url: return False
-        # (수정) 로고나 아이콘 같은 이미지 패턴을 더 적극적으로 필터링
         unwanted_patterns = self.config.UNWANTED_IMAGE_PATTERNS + ['logo', 'icon', 'ci', 'bi', 'symbol', 'banner']
         return not any(pattern in image_url.lower() for pattern in unwanted_patterns)
 
     def _validate_image(self, image_url):
-        """이미지를 직접 다운로드하여 크기와 비율을 검사하는 함수"""
         try:
             response = self.session.get(image_url, stream=True, timeout=5)
             response.raise_for_status()
-            
             content_type = response.headers.get('Content-Type', '').lower()
             if 'image' not in content_type: return False
-            
-            # (추가) 너무 작은 파일은 이미지 처리 없이 바로 건너뛰기 (효율성)
-            if 'content-length' in response.headers and int(response.headers['content-length']) < 10000: # 10KB 이하
+            if 'content-length' in response.headers and int(response.headers['content-length']) < 10000:
                 return False
-
             img_data = BytesIO(response.content)
             with Image.open(img_data) as img:
                 width, height = img.size
-                # (수정) 최소 가로/세로 크기 기준을 높여 작은 썸네일 제외
                 if width < self.config.MIN_IMAGE_WIDTH or height < self.config.MIN_IMAGE_HEIGHT:
                     return False
-                # (수정) 가로가 더 긴 이미지를 선호하도록 비율 조정 (뉴스 이미지는 보통 가로가 김)
                 aspect_ratio = width / height
-                if aspect_ratio > 4.0 or aspect_ratio < 0.5: # 너무 길거나 세로로 긴 이미지 제외
+                if aspect_ratio > 4.0 or aspect_ratio < 0.5:
                     return False
-                if aspect_ratio < 1.2: # 가로가 세로보다 1.2배 이상 길어야 함
+                if aspect_ratio < 1.2:
                     return False
                 return True
         except Exception:
             return False
-    # ⬆️ 이미지 스크레이핑 로직 개선 완료
 
 class AIService:
     def __init__(self, config):
         self.config = config
-        # OpenAI API 키 유효성 검사
         if not self.config.OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
-        # OpenAI 클라이언트 초기화
         self.client = openai.OpenAI(api_key=self.config.OPENAI_API_KEY)
+
     def _call_openai_api(self, system_prompt, user_prompt, is_json=False):
-        """OpenAI API를 호출하는 중앙 함수"""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
         try:
             response_format = {"type": "json_object"} if is_json else {"type": "text"}
-            
             response = self.client.chat.completions.create(
                 model=self.config.OPENAI_MODEL,
                 messages=messages,
@@ -164,15 +149,12 @@ class AIService:
                 response_format=response_format
             )
             content = response.choices[0].message.content.strip()
-            
             if is_json:
-                # JSON 형식인지 다시 한번 확인
                 json.loads(content)
-            
             return content
         except Exception as e:
             logging.error(f" -> 🚨 OpenAI API 호출 중 예외 발생: {e}", exc_info=True)
-            return None    
+            return None
 
     def generate_single_summary(self, article_title: str, article_text: str) -> str:
         logging.info(f" -> ChatGPT 요약 생성 요청: {article_title}")
@@ -182,7 +164,6 @@ class AIService:
         
         system_prompt = "당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다. 뉴스 기사 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요."
         user_prompt = f"[제목]: {article_title}\n[본문]:\n{article_text[:2000]}"
-        
         summary = self._call_openai_api(system_prompt, user_prompt)
         
         if summary:
@@ -191,19 +172,8 @@ class AIService:
         else:
             return "AI 요약 중 오류가 발생했습니다."
 
-    def _generate_content_with_retry(self, prompt, is_json=False):
-        for attempt in range(3):
-            try:
-                response = self.model.generate_content(prompt)
-                if is_json:
-                    cleaned_text = response.text.strip().replace("```json", "").replace("```", "")
-                    json.loads(cleaned_text)
-                    return cleaned_text
-                return response.text
-            except Exception as e:
-                logging.warning(f"AI 생성 실패 (시도 {attempt + 1}/3): {e}")
-                time.sleep(2 ** attempt)
-        return None
+    # (수정) 불필요한 Gemini용 메소드 삭제
+    # def _generate_content_with_retry(...):
 
     def select_top_news(self, news_list):
         logging.info(f"ChatGPT 뉴스 선별 시작... (대상: {len(news_list)}개)")
@@ -213,7 +183,6 @@ class AIService:
         당신은 대한민국 최고의 '물류 전문' 뉴스 에디터입니다. 
         당신의 임무는 화물차 운송, 주선, 육상 운송, 공급망 관리(SCM) 분야의 종사자들에게 가장 실용적이고 중요한 최신 정보를 선별하여 제공하는 것입니다.
         아래 뉴스 목록을 분석하여 다음의 엄격한 기준에 따라 최종 Top 10 뉴스를 선정해주세요.
-
         [선별 기준]
         1.  **핵심 주제 집중:** 반드시 아래 분야와 직접적으로 관련된 뉴스만 선정해야 합니다.
             - 화물 운송 및 트럭킹 동향 (화물차, 운임, 유가 등)
@@ -226,7 +195,6 @@ class AIService:
         3.  **해운/항만 뉴스 비중 유지:** 해양, 항만, 선박 관련 뉴스는 여전히 전체 10개 중 **최대 2개까지만** 포함하여 육상 운송 위주의 균형을 맞춰주세요.
         4.  **중복 제거:** 내용이 사실상 동일한 뉴스는 단 하나만 선정합니다. 제목이 가장 구체적이고 정보가 풍부한 기사를 대표로 선택하세요.
         5.  **중요도 순서:** 위 기준을 모두 만족하는 후보들 중에서, 업계 종사자에게 가장 큰 영향을 미칠 수 있는 중요도 순서대로 정렬해주세요.
-
         [출력 형식]
         - 반드시 JSON 형식으로만 응답해야 합니다.
         - 'selected_indices' 키에 당신이 최종 선정한 기사 10개의 번호(인덱스)를 **중요도 순서대로** 숫자 배열로 담아주세요.
@@ -252,7 +220,6 @@ class AIService:
         
         system_prompt = """
         당신은 탁월한 통찰력을 가진 물류/경제 뉴스 큐레이터입니다. 아래 뉴스 목록을 분석하여, 독자를 위한 매우 간결하고 읽기 쉬운 '데일리 브리핑'을 마크다운 형식으로 작성해주세요.
-        
         **출력 형식 규칙:**
         1. '에디터 브리핑'은 '## 에디터 브리핑' 헤더로 시작하며, 오늘 뉴스의 핵심을 2~3 문장으로 요약합니다.
         2. '주요 뉴스 분석'은 '## 주요 뉴스 분석' 헤더로 시작합니다.
@@ -261,7 +228,6 @@ class AIService:
         5. 문장 안에서 강조하고 싶은 특정 키워드는 큰따옴표(" ")로 묶어주세요.
         """
         user_prompt = f"[오늘의 뉴스 목록]\n{context}"
-
         briefing = self._call_openai_api(system_prompt, user_prompt)
         
         if briefing:
@@ -300,11 +266,7 @@ class NewsService:
                 response = requests.get(rss_url, headers=headers, timeout=15)
                 response.raise_for_status()
                 soup = BeautifulSoup(response.content, 'xml')
-                entries = [{
-                    'rss_title': item.title.text if item.title else "",
-                    'link': item.link.text if item.link else "",
-                    'rss_summary': item.description.text if item.description else ""
-                } for item in soup.find_all('item')]
+                entries = [{'rss_title': item.title.text if item.title else "", 'link': item.link.text if item.link else "", 'rss_summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
                 all_entries.extend(entries)
                 logging.info(f"✅ {rss_url}에서 {len(entries)}개 entry 수집 완료.")
             except Exception as e:
@@ -315,10 +277,24 @@ class NewsService:
     def get_fresh_news(self):
         try:
             initial_articles = self._fetch_rss_feeds()
-            logging.info(f"총 {len(initial_articles)}개의 새로운 후보 기사를 발견했습니다.")
+            
+            # ⬇️ (추가) 키워드 기반 필터링 로직
+            keyword_filtered_articles = []
+            if self.config.KEYWORDS:
+                for entry in initial_articles:
+                    title = entry.get('rss_title', '')
+                    summary = entry.get('rss_summary', '')
+                    content_to_check = (title + ' ' + summary).lower()
+                    if any(keyword.lower() in content_to_check for keyword in self.config.KEYWORDS):
+                        keyword_filtered_articles.append(entry)
+                logging.info(f"키워드 필터링 후 {len(keyword_filtered_articles)}개의 기사가 남았습니다.")
+            else:
+                keyword_filtered_articles = initial_articles
+            # ⬆️ 필터링 로직 완료
+
             processed_articles = []
             with ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_entry = {executor.submit(self._resolve_and_process_article, entry): entry for entry in initial_articles[:self.config.MAX_ARTICLES] if entry['link'] not in self.sent_links}
+                future_to_entry = {executor.submit(self._resolve_and_process_article, entry): entry for entry in keyword_filtered_articles[:self.config.MAX_ARTICLES] if entry['link'] not in self.sent_links}
                 for future in as_completed(future_to_entry):
                     article_data = future.result()
                     if article_data:
@@ -328,7 +304,7 @@ class NewsService:
         except Exception:
             logging.error("❌ 뉴스 수집 중 심각한 오류 발생:", exc_info=True)
             return []
-            
+
     def _clean_url(self, url: str) -> str | None:
         try:
             parsed = urlparse(url)
@@ -342,33 +318,23 @@ class NewsService:
         logging.info(f"-> URL 처리 시도: {entry['rss_title']}")
         try:
             cleaned_url = self._clean_url(entry['link'])
-            if not cleaned_url:
-                logging.warning(f" -> ⚠️ 유효하지 않은 URL: {entry['rss_title']}")
-                return None
+            if not cleaned_url: return None
             
-            article = Article(cleaned_url, language='ko') 
+            article = Article(cleaned_url, language='ko')
             article.download()
             article.parse()
             
-            if article.meta_lang != 'ko':
-                logging.info(f" -> 🌐 한국어 기사가 아니므로 건너뜁니다: (언어: {article.meta_lang}) {article.title}")
-                return None
-
-            if not article.text and not article.title:
-                logging.warning(f" -> ⚠️ 기사 내용 추출 실패 (403 Forbidden 등): {cleaned_url}")
-                return None
+            if article.meta_lang != 'ko': return None
+            if not article.text and not article.title: return None
 
             final_title = article.title if article.title else entry['rss_title']
             logging.info(f" -> ✅ [한국어 뉴스] 최종 URL/제목 확보: {final_title}")
             
-            final_url = article.url 
-
             return {
                 'title': final_title,
-                'link': final_url,
-                'url': final_url,
+                'link': article.url, 'url': article.url,
                 'summary': BeautifulSoup(entry.get('rss_summary', ''), 'lxml').get_text(strip=True)[:150] + "...",
-                'image_url': self.scraper.get_image_url(final_url),
+                'image_url': self.scraper.get_image_url(article.url),
                 'full_text': article.text
             }
         except ArticleException as e:
@@ -437,13 +403,11 @@ class EmailService:
             send_message = service.users().messages().send(userId="me", body=create_message).execute()
             logging.info(f"✅ 이메일 발송 성공! (Message ID: {send_message['id']})")
             
-            # ⬇️ (추가) 발송된 뉴스 목록을 로그로 기록합니다.
             logging.info("--- 📧 발송된 뉴스레터 목록 ---")
             for i, news in enumerate(news_list):
                 logging.info(f"  {i+1}. {news['title']}")
                 logging.info(f"     - 링크: {news['link']}")
             logging.info("-----------------------------")
-            # ⬆️ 로그 기록 추가 완료
 
         except HttpError:
             logging.error("❌ 이메일 발송 실패:", exc_info=True)
@@ -475,12 +439,10 @@ def main():
                 news = future_to_news[future]
                 try:
                     summary = future.result()
-                    # ⬇️ (수정) AI 요약 결과가 비정상적일 경우 대체 텍스트를 생성합니다.
                     if "오류" in summary or "생성할 수 없습니다" in summary or len(summary) < 20:
                         logging.warning(f" -> ⚠️ AI 요약 실패, 대체 텍스트를 생성합니다: {news['title']}")
-                        # 기사 본문의 첫 200자를 가져와서 문장을 마무리하고 "..."를 붙입니다.
                         clean_text = re.sub(r'\s+', ' ', news['full_text']).strip()
-                        end_index = clean_text.find('.', 150) # 150자 근처의 첫 마침표를 찾음
+                        end_index = clean_text.find('.', 150)
                         if end_index != -1:
                             news['ai_summary'] = clean_text[:end_index+1]
                         else:
@@ -489,8 +451,7 @@ def main():
                         news['ai_summary'] = summary
                 except Exception as e:
                     logging.error(f" -> 🚨 AI 요약 스레드에서 심각한 오류 발생: {e}")
-                    news['ai_summary'] = news['summary'] # RSS 요약으로 대체
-        # ⬆️ 수정 완료
+                    news['ai_summary'] = news['summary']
         
         ai_briefing_md = ai_service.generate_briefing(top_10_news_base)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
@@ -518,7 +479,8 @@ def main():
 
         email_service = EmailService(config)
         today_str = get_kst_today_str()
-        email_subject = f"[{today_str}] 오늘의 IT/산업 뉴스 Top {len(top_10_news_base)}"
+        # (수정) 이메일 제목을 뉴스레터 주제에 맞게 변경
+        email_subject = f"[{today_str}] 오늘의 물류 전문 뉴스 Top {len(top_10_news_base)}"
         
         email_body = email_service.create_email_body(top_10_news_base, ai_briefing_html, today_str)
         email_service.send_email(email_subject, email_body, top_10_news_base)
@@ -536,5 +498,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
