@@ -291,10 +291,7 @@ class NewsService:
                     text = link_element.text.strip()
                     if not href or not text: continue
                     if "google.com" in href: continue
-
-                    # ⬇️⬇️⬇️ 핵심 변경점: mailto, javascript 링크를 명시적으로 제외 ⬇️⬇️⬇️
-                    if href.startswith(('mailto:', 'javascript:')):
-                        continue
+                    if href.startswith(('mailto:', 'javascript:')): continue
 
                     cleaned_url = self._clean_url(href)
                     if cleaned_url and len(text) > max_text_length:
@@ -312,7 +309,6 @@ class NewsService:
             article.download()
             article.parse()
             
-            # download() 실패 시 ArticleException이 발생하므로 여기서 텍스트 유무로 재확인
             if not article.text and not article.title:
                 logging.warning(f"  -> ⚠️ 기사 내용 추출 실패 (403 Forbidden 등): {validated_url}")
                 return None
@@ -328,7 +324,6 @@ class NewsService:
                 'full_text': article.text
             }
         except ArticleException as e:
-            # newspaper3k 라이브러리가 내보내는 특정 오류를 잡아서 더 상세히 기록
             logging.error(f"  -> 🚨 기사 처리 라이브러리 오류(ArticleException): {e}")
             return None
         except Exception:
