@@ -270,7 +270,7 @@ class NewsService:
                 'image_url': self.scraper.get_image_url(cleaned_url),
                 'full_text': article.text
             }
-        except (ArticleException, ArticleDownloadState) as e: # ⬅️ (수정) newspaper3k 관련 예외 명시
+        except ArticleException as e: # ArticleDownloadState를 제거합니다.
             logging.error(f" -> 🚨 기사 처리 라이브러리 오류: {e}")
             return None
         except Exception:
@@ -413,5 +413,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
