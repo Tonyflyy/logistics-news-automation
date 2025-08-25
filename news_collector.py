@@ -59,22 +59,47 @@ class NewsScraper:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
            
+            # 🆕 변경: meta_image 추출 시 로그 추가 (디버깅: meta 태그 유무 확인)
             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
             if meta_image and meta_image.get("content"):
                 meta_url = self._resolve_url(article_url, meta_image["content"])
-                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url): return meta_url
-            for tag in soup.select('figure > img, picture > img', limit=5):
+                logging.info(f" -> meta 이미지 후보 발견: {meta_url[:80]}...")  # 🆕 로그: 후보 URL 기록
+                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url): 
+                    logging.info(f" -> ✅ meta 이미지 유효성 통과: {meta_url[:80]}...")  # 🆕 로그: 성공 시 기록
+                    return meta_url
+                else:
+                    logging.warning(f" -> ⚠️ meta 이미지 유효성 실패: {meta_url[:80]}...")  # 🆕 로그: 실패 시 이유 기록
+            
+            # 🆕 변경: figure/picture 태그 순회 시 로그 추가 (디버깅: 태그 수 및 후보 확인)
+            figure_tags = soup.select('figure > img, picture > img', limit=5)
+            logging.info(f" -> figure/picture 태그 발견: {len(figure_tags)}개")  # 🆕 로그: 태그 수 기록
+            for tag in figure_tags:
                 img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
                 if img_url and self._is_valid_candidate(img_url):
                     full_url = self._resolve_url(article_url, img_url)
-                    if self._validate_image(full_url): return full_url
+                    logging.info(f" -> figure 이미지 후보: {full_url[:80]}...")  # 🆕 로그: 후보 URL 기록
+                    if self._validate_image(full_url): 
+                        logging.info(f" -> ✅ figure 이미지 유효성 통과: {full_url[:80]}...")  # 🆕 로그: 성공 시 기록
+                        return full_url
+                    else:
+                        logging.warning(f" -> ⚠️ figure 이미지 유효성 실패: {full_url[:80]}...")  # 🆕 로그: 실패 시 기록
            
-            for img in soup.find_all("img", limit=10):
+            # 🆕 변경: 일반 img 태그 순회 시 로그 추가 (디버깅: 태그 수 및 후보 확인)
+            img_tags = soup.find_all("img", limit=10)
+            logging.info(f" -> 일반 img 태그 발견: {len(img_tags)}개")  # 🆕 로그: 태그 수 기록
+            for img in img_tags:
                 img_url = img.get("src") or img.get("data-src")
                 if img_url and self._is_valid_candidate(img_url):
                     full_url = self._resolve_url(article_url, img_url)
-                    if self._validate_image(full_url): return full_url
+                    logging.info(f" -> img 이미지 후보: {full_url[:80]}...")  # 🆕 로그: 후보 URL 기록
+                    if self._validate_image(full_url): 
+                        logging.info(f" -> ✅ img 이미지 유효성 통과: {full_url[:80]}...")  # 🆕 로그: 성공 시 기록
+                        return full_url
+                    else:
+                        logging.warning(f" -> ⚠️ img 이미지 유효성 실패: {full_url[:80]}...")  # 🆕 로그: 실패 시 기록
+            
             logging.warning(f" -> ⚠️ 유효 이미지를 찾지 못함: {article_url[:80]}...")
+            logging.info(f" -> 기본 이미지 반환: {self.config.DEFAULT_IMAGE_URL}")  # 🆕 로그: 기본 이미지 사용 시 기록
             return self.config.DEFAULT_IMAGE_URL
         except Exception:
             logging.error(f" -> 🚨 이미지 추출 중 오류 발생: {article_url[:80]}...", exc_info=True)
@@ -344,3 +369,4 @@ def main():
             del news_service
 if __name__ == "__main__":
     main()
+
