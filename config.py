@@ -11,6 +11,8 @@ class Config:
     
     # API 키 및 수신자 목록 (환경 변수에서 로드)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    OPENAI_MODEL = "gpt-5" # 요청하신 gpt-5 모델로 설정
     
     RECIPIENT_LIST = [email.strip() for email in os.getenv('RECIPIENT_LIST', '').split(',')]
     SENDER_EMAIL = "zzzfbwnsgh@gmail.com" # 실제 발신자 이메일로 변경 필요
@@ -75,6 +77,7 @@ class Config:
     ]
 
     DEFAULT_IMAGE_URL = "https://via.placeholder.com/600x300.png?text=News"
+
 
 
 
