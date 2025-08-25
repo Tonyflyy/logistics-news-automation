@@ -20,8 +20,8 @@ class Config:
     CREDENTIALS_FILE = 'credentials.json'
 
     # 이미지 스크래핑 설정
-    MIN_IMAGE_WIDTH = 300
-    MIN_IMAGE_HEIGHT = 150
+    MIN_IMAGE_WIDTH = 500
+    MIN_IMAGE_HEIGHT = 250
     DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News' # 기본 이미지 URL
     
     # 뉴스 수집 기간
@@ -72,6 +72,9 @@ class Config:
         'doubleclick.net',
 
     ]
+
+    DEFAULT_IMAGE_URL = "https://via.placeholder.com/600x300.png?text=News"
+
 
 
 
