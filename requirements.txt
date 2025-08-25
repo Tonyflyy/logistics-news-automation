@@ -12,3 +12,4 @@ google-generativeai
 markdown
 newspaper3k
 feedparser
+openai
