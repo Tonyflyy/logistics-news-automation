@@ -1,12 +1,8 @@
 # requirements.txt
-
-# newspaper3k와의 호환성을 위해 추가 기능([html_clean])을 명시
-lxml[html_clean]
-
-# 나머지 라이브러리 목록
 python-dotenv
 requests
 beautifulsoup4
+lxml[html_clean]
 jinja2
 Pillow
 google-api-python-client
@@ -15,6 +11,4 @@ google-auth-oauthlib
 google-generativeai
 markdown
 newspaper3k
-selenium
-selenium-stealth
-webdriver-manager
+feedparser
