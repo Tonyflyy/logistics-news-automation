@@ -51,6 +51,7 @@ def markdown_to_html(text):
 
 # --- 핵심 기능 클래스 ---
 class NewsScraper:
+    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.session = self._create_session()
@@ -120,6 +121,7 @@ class NewsScraper:
             return False
 
 class AIService:
+    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         if not self.config.GEMINI_API_KEY:
@@ -185,8 +187,18 @@ class NewsService:
         self.scraper = scraper
         self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
+        
+        # ⬇️⬇️⬇️ 핵심 변경점: 드라이버를 NewsService가 소유하고 재활용 ⬇️⬇️⬇️
+        self.driver = self._create_stealth_driver()
+
+    def __del__(self):
+        """클래스가 소멸될 때 드라이버를 확실히 종료합니다."""
+        if self.driver:
+            logging.info("브라우저 드라이버를 종료합니다.")
+            self.driver.quit()
 
     def _create_stealth_driver(self):
+        logging.info("ℹ️ 스텔스 브라우저 드라이버를 초기화합니다 (최초 1회 실행)...")
         chrome_options = Options()
         chrome_options.page_load_strategy = 'eager'
         chrome_options.add_argument("--headless")
@@ -202,16 +214,21 @@ class NewsService:
             driver = webdriver.Chrome(service=service, options=chrome_options)
             stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
                     webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-            driver.set_page_load_timeout(15)
+            driver.set_page_load_timeout(20) # 페이지 로드 타임아웃을 20초로 조금 더 여유있게 설정
+            logging.info("✅ 스텔스 브라우저 드라이버 초기화 완료.")
             return driver
         except Exception:
+            logging.critical("🚨🚨🚨 드라이버 생성에 치명적인 오류가 발생했습니다!", exc_info=True)
             return None
 
     def _load_sent_links(self):
         try:
             with open(self.config.SENT_LINKS_FILE, 'r', encoding='utf-8') as f:
-                return set(line.strip() for line in f)
+                links = set(line.strip() for line in f)
+                logging.info(f"✅ {len(links)}개 발송 기록 로드 완료.")
+                return links
         except FileNotFoundError:
+            logging.warning("⚠️ 발송 기록 파일이 없어 새로 시작합니다.")
             return set()
 
     def _fetch_google_news_rss(self):
@@ -222,39 +239,34 @@ class NewsService:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'xml')
-        # RSS에서 가져온 기본 정보를 반환
+        # ⬇️⬇️⬇️ 핵심 변경점: RSS 원본 데이터를 그대로 사용하도록 필드명 변경 ⬇️⬇️⬇️
         return [{'rss_title': item.title.text, 'google_link': item.link.text, 'rss_summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
 
     def get_fresh_news(self):
-        driver = None
+        if not self.driver:
+            logging.critical("❌ 드라이버가 없어 뉴스 수집을 중단합니다.")
+            return []
+            
         try:
             initial_articles = self._fetch_google_news_rss()
             logging.info(f"총 {len(initial_articles)}개의 새로운 후보 기사를 발견했습니다.")
             
+            # ⬇️⬇️⬇️ 핵심 변경점: 병렬 처리 대신, 드라이버 하나로 순차 처리 ⬇️⬇️⬇️
             processed_articles = []
-            
-            # ⬇️⬇️⬇️ 핵심 변경: 병렬 처리 대신, 드라이버 하나로 순차 처리 ⬇️⬇️⬇️
-            driver = self._create_stealth_driver()
-            if not driver:
-                logging.critical("❌ 드라이버 생성 실패로 뉴스 수집을 중단합니다.")
-                return []
-
-            for entry in initial_articles[:50]:
+            for entry in initial_articles[:50]: # 최대 50개까지만 처리
+                # 이미 보낸 링크는 건너뛰어 불필요한 브라우저 작업을 줄임
                 if entry['google_link'] in self.sent_links:
                     continue
                 
-                article_data = self._resolve_and_process_article(driver, entry)
+                article_data = self._resolve_and_process_article(self.driver, entry)
                 if article_data:
                     processed_articles.append(article_data)
 
             logging.info(f"✅ 총 {len(processed_articles)}개의 유효한 새 뉴스를 처리했습니다.")
             return processed_articles
-        except Exception as e:
+        except Exception:
             logging.error("❌ 뉴스 수집 중 심각한 오류 발생:", exc_info=True)
             return []
-        finally:
-            if driver:
-                driver.quit()
             
     def _clean_url(self, url: str) -> str | None:
         try:
@@ -269,8 +281,10 @@ class NewsService:
         logging.info(f"-> URL 처리 시도: {entry['rss_title']}")
         try:
             driver.get(entry['google_link'])
+            
             wait = WebDriverWait(driver, 10)
             all_links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
+            logging.debug(f"  -> 페이지에서 {len(all_links)}개의 링크 후보 발견.")
 
             best_candidate = None
             max_text_length = -1
@@ -280,22 +294,25 @@ class NewsService:
                     text = link_element.text.strip()
                     if not href or not text: continue
                     if "google.com" in href: continue
+
                     cleaned_url = self._clean_url(href)
                     if cleaned_url and len(text) > max_text_length:
                         max_text_length = len(text)
                         best_candidate = cleaned_url
-                except Exception: continue
+                except Exception:
+                    continue
             
-            if not best_candidate: return None
+            if not best_candidate:
+                logging.warning(f"  -> ⚠️ 유효한 기사 링크를 찾지 못함: {entry['rss_title']}")
+                return None
             
             validated_url = best_candidate
             article = Article(validated_url)
             article.download()
             article.parse()
 
-            # ⬇️⬇️⬇️ 핵심 변경: RSS의 제목이 아닌, 실제 페이지에서 추출한 최종 제목 사용 ⬇️⬇️⬇️
+            # ⬇️⬇️⬇️ 핵심 변경점: RSS의 제목이 아닌, 실제 페이지에서 추출한 최종 제목 사용 ⬇️⬇️⬇️
             final_title = article.title if article.title else entry['rss_title']
-
             logging.info(f"  -> ✅ 최종 URL/제목 확보: {final_title}")
 
             return {
@@ -319,6 +336,7 @@ class NewsService:
             logging.error("❌ 발송 기록 파일 업데이트 실패:", exc_info=True)
 
 class EmailService:
+    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
@@ -362,12 +380,12 @@ class EmailService:
 def main():
     setup_logging()
     logging.info("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
+    news_service = None
     try:
         config = Config()
         news_scraper = NewsScraper(config)
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
-        email_service = EmailService(config)
 
         all_news = news_service.get_fresh_news()
         if not all_news:
@@ -379,7 +397,7 @@ def main():
             logging.warning("⚠️ AI가 Top 뉴스를 선별하지 못했습니다.")
             return
             
-        logging.info(f"✅ AI Top 10 선별 완료. 선별된 {len(top_10_news_base)}개 뉴사의 개별 AI 요약을 시작합니다...")
+        logging.info(f"✅ AI Top 10 선별 완료. 선별된 {len(top_10_news_base)}개 뉴스의 개별 AI 요약을 시작합니다...")
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_news = {executor.submit(ai_service.generate_single_summary, news['title'], news['full_text']): news for news in top_10_news_base}
             for future in as_completed(future_to_news):
@@ -389,6 +407,7 @@ def main():
         ai_briefing_md = ai_service.generate_briefing(top_10_news_base)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
 
+        email_service = EmailService(config)
         today_str = get_kst_today_str()
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_10_news_base)}"
         email_body = email_service.create_email_body(top_10_news_base, ai_briefing_html, today_str)
@@ -401,7 +420,10 @@ def main():
         logging.critical(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
         logging.critical("🔥 치명적인 오류 발생:", exc_info=True)
+    finally:
+        # news_service 객체가 생성될 때 드라이버도 함께 생성되므로, 객체를 삭제하여 __del__을 호출
+        if news_service:
+            del news_service
 
 if __name__ == "__main__":
     main()
-
