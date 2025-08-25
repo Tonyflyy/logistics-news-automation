@@ -28,6 +28,38 @@ class Config:
     NEWS_FETCH_HOURS = 48
     MAX_ARTICLES = 100
 
+    RSS_FEEDS = [
+        # --- 물류/공급망 전문 RSS (글로벌) ---
+        "https://www.freightwaves.com/rss",                     # FreightWaves (화물/물류 뉴스)
+        "https://www.supplychaindive.com/rss",                # Supply Chain Dive (공급망/물류)
+        "https://feeds.feedburner.com/logisticsmgmt/latest",    # Logistics Management (물류 관리)
+        "https://www.ttnews.com/rss",                           # Transport Topics (운송/화물)
+        "https://www.dcvelocity.com/rss",                       # DC Velocity (물류/창고)
+        "https://www.supplychainbrain.com/rss/feeds/all",       # SupplyChainBrain (공급망)
+        "https://maritime-executive.com/rss",                   # Maritime Executive (해상 운송/화물)
+
+        # --- 🆕 추가: 국내 물류 전문 RSS ---
+        "https://www.klnews.co.kr/rss/S1N1.xml",                # 물류신문 (국내 물류 소식)
+        
+        # --- 주요 국내/외신 RSS (한국 관련 및 경제/IT) ---
+        "https://www.zdnet.co.kr/rss/all.xml",                  # ZDNet Korea (IT 기술)
+        "https://www.etnews.com/rss/all.xml",                   # 전자신문 (IT/기술)
+        "http://rss.edaily.co.kr/edaily_news.xml",              # 이데일리 (경제)
+        "https://www.hankyung.com/feed/it",                      # 한국경제 (IT)
+        "https://www.kedglobal.com/newsRss",                    # 코리아 경제일보 (영문)
+        "http://www.businesskorea.co.kr/rss/allEngArticle.xml", # 비즈니스코리아 (영문)
+        "https://en.yna.co.kr/rss/",                            # 연합뉴스 (영문)
+        
+        # --- 🆕 추가: 주요 글로벌 경제/기술 미디어 ---
+        "https://feeds.reuters.com/reuters/businessNews",       # Reuters (비즈니스)
+        "https://feeds.bloomberg.com/technology/news.rss",      # Bloomberg (기술)
+        "https://www.wsj.com/xml/rss/3_7455.xml",                # Wall Street Journal (기술)
+        
+        # --- 특정 키워드 모니터링 RSS ---
+        "https://world.einnews.com/rss/south-korea-logistics",  # EIN News - South Korea Logistics
+        "https://shipping.einnews.com/rss/shipping-logistics",  # EIN News - Shipping & Logistics
+    ]
+
     # 검색 키워드
     KEYWORDS = [
         '화물', '물류', '티맵', '티맵화물', '화물운송', '육상운송', 
@@ -57,4 +89,5 @@ class Config:
         'contentsfeed.com',
         'googleadservices.com',
         'doubleclick.net',
+
     ]
