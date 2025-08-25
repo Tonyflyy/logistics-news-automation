@@ -237,7 +237,7 @@ class NewsService:
             return []
             
     def _clean_url(self, url: str) -> str | None:
-        """URL에서 불필요한 부분을 제거하고, 광고 도메인인지 확인합니다."""
+        """URL에서 광고 도메인을 확인하고 #fragment를 제거합니다."""
         try:
             parsed = urlparse(url)
             if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
@@ -254,15 +254,25 @@ class NewsService:
 
             driver.get(entry['link'])
             
-            # XPath를 사용하여 페이지의 메인 컨테이너(c-wiz) 안의 첫 번째 링크를 정확히 찾아냅니다.
+            # ⬇️⬇️⬇️ 최종 해결책: 페이지의 모든 링크를 찾아 가장 적합한 링크를 선택 ⬇️⬇️⬇️
             wait = WebDriverWait(driver, 10)
-            link_element = wait.until(
-                EC.presence_of_element_located((By.XPATH, "//c-wiz//a[@href]"))
-            )
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "a"))) # 페이지에 링크가 하나라도 나타날 때까지 대기
             
-            original_url = link_element.get_attribute('href')
-            validated_url = self._clean_url(original_url)
+            all_links = driver.find_elements(By.TAG_NAME, "a")
+            validated_url = None
+            
+            # 찾은 모든 링크를 검사하여 가장 적합한 링크를 찾음
+            for link_element in all_links:
+                original_url = link_element.get_attribute('href')
+                if not original_url: continue # href 속성이 없는 링크는 건너뜀
 
+                # 광고나 구글 관련 링크가 아닌 첫 번째 유효한 링크를 선택
+                if "google.com" not in original_url and "accounts.google.com" not in original_url:
+                    cleaned_url = self._clean_url(original_url)
+                    if cleaned_url:
+                        validated_url = cleaned_url
+                        break # 유효한 링크를 찾으면 반복 중단
+            
             if not validated_url:
                 return None
 
@@ -277,7 +287,9 @@ class NewsService:
                 'image_url': self.scraper.get_image_url(validated_url),
                 'full_text': article.text
             }
-        except Exception:
+        except Exception as e:
+            # ⬇️⬇️⬇️ 오류 발생 시 원인을 정확히 출력하도록 수정 ⬇️⬇️⬇️
+            print(f"  -> ❌ URL 처리 중 오류 발생: {e.__class__.__name__} - {entry['title']}")
             return None
         finally:
             if driver:
