@@ -1,5 +1,5 @@
 # main.py
-import os, base64, markdown, json, time, random, re, logging, ssl
+import os, base64, markdown, json, time, random, re, logging, feedparser
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from urllib.parse import urlparse, urljoin
@@ -10,27 +10,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import ssl
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from zoneinfo import ZoneInfo
-from newspaper import Article, Config as NewspaperConfig # ⬅️ newspaper의 Config 임포트
+from newspaper import Article, Config as NewspaperConfig
 
-# (이하 다른 import 구문은 이전과 동일)
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
-from selenium_stealth import stealth
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+# 구글 인증 관련
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.generativeai as genai
+
 from config import Config
 
 # --- SSL 오류 해결을 위한 설정 ---
@@ -57,7 +51,6 @@ def markdown_to_html(text):
 
 # --- 핵심 기능 클래스 ---
 class NewsScraper:
-    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.session = self._create_session()
@@ -109,11 +102,10 @@ class NewsScraper:
             return False
 
 class AIService:
-    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         if not self.config.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
+            raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
         genai.configure(api_key=self.config.GEMINI_API_KEY)
         self.model = genai.GenerativeModel(self.config.GEMINI_MODEL)
 
@@ -170,7 +162,6 @@ class AIService:
         return briefing
 
 class NewsService:
-    # ⬇️⬇️⬇️ 이 클래스 내부의 _process_single_article 함수가 핵심적으로 변경되었습니다 ⬇️⬇️⬇️
     def __init__(self, config, scraper, ai_service):
         self.config = config
         self.scraper = scraper
@@ -240,11 +231,10 @@ class NewsService:
             
             logging.info(f"  -> 키워드 일치, 처리 시작: {article_info['title']}")
             
-            # ⬇️⬇️⬇️ 핵심 변경점: newspaper3k에 SSL 우회 설정 적용 ⬇️⬇️⬇️
             newspaper_config = NewspaperConfig()
             newspaper_config.browser_user_agent = random.choice(self.config.USER_AGENTS)
-            newspaper_config.verify_ssl = False # SSL 인증서 검증 비활성화
-            newspaper_config.fetch_images = False # 이미지 다운로드는 나중에 하므로 비활성화
+            newspaper_config.verify_ssl = False
+            newspaper_config.fetch_images = False
             newspaper_config.request_timeout = 10
 
             article = Article(article_info['link'], config=newspaper_config)
@@ -262,8 +252,7 @@ class NewsService:
                 'image_url': image_url,
                 'full_text': article.text
             }
-        except Exception as e:
-            # ⬇️⬇️⬇️ 핵심 변경점: 오류 발생 시 상세 내용 로깅 ⬇️⬇️⬇️
+        except Exception:
             logging.error(f"  -> 🚨 기사 처리 중 오류: {article_info.get('title')}", exc_info=True)
             return None
 
@@ -277,7 +266,6 @@ class NewsService:
             logging.error("❌ 발송 기록 파일 업데이트 실패:", exc_info=True)
 
 class EmailService:
-    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
