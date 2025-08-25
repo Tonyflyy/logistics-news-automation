@@ -1,0 +1,14 @@
+# Log & Data Files
+sent_links_logistics.txt
+token.json
+
+# Environment Files
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Virtual Environment
+.venv/
+venv/
