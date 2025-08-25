@@ -242,14 +242,25 @@ class NewsService:
             if not cleaned_url:
                 logging.warning(f" -> ⚠️ 유효하지 않은 URL: {entry['rss_title']}")
                 return None
-            article = Article(cleaned_url)
+            
+            # ⬇️ (수정) 언어 감지 로직 추가
+            # newspaper3k가 기사 언어를 감지하도록 설정합니다.
+            article = Article(cleaned_url, language='ko') 
             article.download()
             article.parse()
+            
+            # 언어가 한국어('ko')가 아니면 해당 기사는 건너뜁니다.
+            if article.meta_lang != 'ko':
+                logging.info(f" -> 🌐 한국어 기사가 아니므로 건너뜁니다: (언어: {article.meta_lang}) {article.title}")
+                return None
+            # ⬆️ (수정) 언어 감지 로직 완료
+
             if not article.text and not article.title:
                 logging.warning(f" -> ⚠️ 기사 내용 추출 실패 (403 Forbidden 등): {cleaned_url}")
                 return None
+
             final_title = article.title if article.title else entry['rss_title']
-            logging.info(f" -> ✅ 최종 URL/제목 확보: {final_title}")
+            logging.info(f" -> ✅ [한국어 뉴스] 최종 URL/제목 확보: {final_title}")
             return {
                 'title': final_title,
                 'link': cleaned_url, 'url': cleaned_url,
@@ -257,20 +268,12 @@ class NewsService:
                 'image_url': self.scraper.get_image_url(cleaned_url),
                 'full_text': article.text
             }
-        except ArticleException as e:
-            logging.error(f" -> 🚨 기사 처리 라이브러리 오류(ArticleException): {e}")
+        except (ArticleException, ArticleDownloadState) as e: # ⬅️ (수정) newspaper3k 관련 예외 명시
+            logging.error(f" -> 🚨 기사 처리 라이브러리 오류: {e}")
             return None
         except Exception:
             logging.error(f" -> 🚨 URL 처리 중 예외 발생: {entry['rss_title']}", exc_info=True)
             return None
-    def update_sent_links_log(self, news_list):
-        links = [news['link'] for news in news_list]
-        try:
-            with open(self.config.SENT_LINKS_FILE, 'a', encoding='utf-8') as f:
-                for link in links: f.write(link + '\n')
-            logging.info(f"✅ {len(links)}개 링크를 발송 기록에 추가했습니다.")
-        except Exception as e:
-            logging.error("❌ 발송 기록 파일 업데이트 실패:", exc_info=True)
 
 class EmailService:
     def __init__(self, config):
@@ -408,3 +411,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
