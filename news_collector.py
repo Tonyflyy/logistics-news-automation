@@ -165,9 +165,10 @@ class AIService:
         return briefing
 
 class NewsService:
-    def __init__(self, config, scraper):
+    def __init__(self, config, scraper, ai_service):
         self.config = config
         self.scraper = scraper
+        self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
 
     def _create_stealth_driver(self):
@@ -188,7 +189,8 @@ class NewsService:
                     webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
             driver.set_page_load_timeout(15)
             return driver
-        except Exception: return None
+        except Exception:
+            return None
 
     def _load_sent_links(self):
         try:
@@ -214,25 +216,46 @@ class NewsService:
             
             valid_articles = [article for article in all_articles if article['link'] not in self.sent_links]
             
-            # 병렬 처리를 URL 추출 단계에만 사용
+            processed_articles = []
             with ThreadPoolExecutor(max_workers=4) as executor:
                 future_to_article = {executor.submit(self._resolve_and_process_url, article): article for article in valid_articles[:50]}
-                processed_articles = [future.result() for future in as_completed(future_to_article) if future.result()]
+                for future in as_completed(future_to_article):
+                    result = future.result()
+                    if result:
+                        processed_articles.append(result)
 
             print(f"✅ 총 {len(processed_articles)}개의 유효한 새 뉴스를 처리했습니다.")
             return processed_articles
         except Exception as e:
             print(f"❌ 뉴스 수집 중 심각한 오류 발생: {e}")
             return []
-
-    def _clean_and_validate_url(self, url: str) -> str | None:
+            
+    def _is_valid_article_url(self, url: str) -> bool:
+        """URL이 실제 기사 페이지일 가능성이 높은지 여러 기준으로 검증합니다."""
         try:
             parsed = urlparse(url)
-            if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST): return None
-            if not parsed.path or len(parsed.path) <= 5:
-                if not any(allowed in parsed.netloc for allowed in ['hyundai.co.kr']): return None
-            return parsed._replace(fragment="").geturl()
-        except Exception: return None
+            
+            # 1. 광고 도메인 필터링
+            if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
+                return False
+
+            # 2. URL 경로에 기사임을 암시하는 키워드가 있는지 확인
+            path = parsed.path.lower()
+            article_keywords = ['news', 'article', 'view', 'read', 'board', 'idxno=', 'id=']
+            if not any(keyword in path for keyword in article_keywords):
+                # 경로가 매우 짧은 홈페이지/카테고리 링크일 가능성이 높음
+                if len(path) < 10: 
+                    return False
+            
+            # 3. URL에 날짜 형식(예: /2025/08/)이 포함되어 있는지 확인
+            if not re.search(r'/\d{4}/\d{2}/', path):
+                # 날짜 형식이 없는 경우, 경로가 너무 단순하면 기사가 아닐 수 있음
+                if path.count('/') < 2 and len(path) < 15:
+                    return False
+
+            return True
+        except Exception:
+            return False
 
     def _resolve_and_process_url(self, entry):
         driver = None
@@ -242,10 +265,18 @@ class NewsService:
 
             driver.get(entry['link'])
             wait = WebDriverWait(driver, 10)
-            link_element = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'a')))
+            
+            # <a> 태그를 찾되, href 속성이 유효한 http 링크인 것만 대상으로 함
+            link_element = wait.until(EC.presence_of_element_located((By.XPATH, "//a[starts-with(@href, 'http')]")))
             original_url = link_element.get_attribute('href')
-            validated_url = self._clean_and_validate_url(original_url)
-            if not validated_url: return None
+            
+            # ⬇️⬇️⬇️ 새로운 검증 함수를 사용하여 유효한 기사 링크인지 최종 확인 ⬇️⬇️⬇️
+            if not self._is_valid_article_url(original_url):
+                print(f"  ㄴ> 🗑️ 기사 페이지가 아닌 링크 제외: {original_url[:80]}...")
+                return None
+
+            # URL에서 불필요한 # 부분은 제거
+            validated_url = urljoin(original_url, urlparse(original_url).path)
 
             article = Article(validated_url)
             article.download()
@@ -258,7 +289,8 @@ class NewsService:
                 'image_url': self.scraper.get_image_url(validated_url),
                 'full_text': article.text
             }
-        except Exception: return None
+        except Exception:
+            return None
         finally:
             if driver: driver.quit()
 
@@ -361,3 +393,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
