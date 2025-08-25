@@ -10,11 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import ssl # ⬇️ SSL 오류 해결을 위해 추가
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 from zoneinfo import ZoneInfo
-from newspaper import Article
+from newspaper import Article, ArticleException
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
@@ -34,13 +35,21 @@ import google.generativeai as genai
 
 from config import Config
 
+# --- ⬇️ SSL 오류 해결을 위한 설정 추가 ⬇️ ---
+class CustomHttpAdapter(HTTPAdapter):
+    def __init__(self, *args, **kwargs):
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
+        super().__init__(*args, **kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False):
+        self.poolmanager = requests.packages.urllib3.poolmanager.PoolManager(
+            num_pools=connections, maxsize=maxsize,
+            block=block, ssl_context=self.ssl_context)
+
 # --- 로깅 설정 함수 ---
 def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
 # --- 유틸리티 함수 ---
 def get_kst_today_str():
@@ -51,17 +60,14 @@ def markdown_to_html(text):
 
 # --- 핵심 기능 클래스 ---
 class NewsScraper:
-    # (이전과 동일, 변경 없음)
     def __init__(self, config):
         self.config = config
         self.session = self._create_session()
 
     def _create_session(self):
         session = requests.Session()
-        retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
+        # ⬇️ SSL 오류 해결을 위해 CustomHttpAdapter 사용 ⬇️
+        session.mount('https://', CustomHttpAdapter())
         return session
 
     def get_image_url(self, article_url: str) -> str:
@@ -91,7 +97,7 @@ class NewsScraper:
 
             logging.warning(f"  -> ⚠️ 유효 이미지를 찾지 못함: {article_url[:80]}...")
             return self.config.DEFAULT_IMAGE_URL
-        except Exception as e:
+        except Exception:
             logging.error(f"  -> 🚨 이미지 추출 중 오류 발생: {article_url[:80]}...", exc_info=True)
             return self.config.DEFAULT_IMAGE_URL
 
@@ -187,12 +193,9 @@ class NewsService:
         self.scraper = scraper
         self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
-        
-        # ⬇️⬇️⬇️ 핵심 변경점: 드라이버를 NewsService가 소유하고 재활용 ⬇️⬇️⬇️
         self.driver = self._create_stealth_driver()
 
     def __del__(self):
-        """클래스가 소멸될 때 드라이버를 확실히 종료합니다."""
         if self.driver:
             logging.info("브라우저 드라이버를 종료합니다.")
             self.driver.quit()
@@ -214,7 +217,7 @@ class NewsService:
             driver = webdriver.Chrome(service=service, options=chrome_options)
             stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
                     webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-            driver.set_page_load_timeout(20) # 페이지 로드 타임아웃을 20초로 조금 더 여유있게 설정
+            driver.set_page_load_timeout(20)
             logging.info("✅ 스텔스 브라우저 드라이버 초기화 완료.")
             return driver
         except Exception:
@@ -239,7 +242,6 @@ class NewsService:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'xml')
-        # ⬇️⬇️⬇️ 핵심 변경점: RSS 원본 데이터를 그대로 사용하도록 필드명 변경 ⬇️⬇️⬇️
         return [{'rss_title': item.title.text, 'google_link': item.link.text, 'rss_summary': item.description.text if item.description else ""} for item in soup.find_all('item')]
 
     def get_fresh_news(self):
@@ -251,13 +253,10 @@ class NewsService:
             initial_articles = self._fetch_google_news_rss()
             logging.info(f"총 {len(initial_articles)}개의 새로운 후보 기사를 발견했습니다.")
             
-            # ⬇️⬇️⬇️ 핵심 변경점: 병렬 처리 대신, 드라이버 하나로 순차 처리 ⬇️⬇️⬇️
             processed_articles = []
-            for entry in initial_articles[:50]: # 최대 50개까지만 처리
-                # 이미 보낸 링크는 건너뛰어 불필요한 브라우저 작업을 줄임
+            for entry in initial_articles[:50]:
                 if entry['google_link'] in self.sent_links:
                     continue
-                
                 article_data = self._resolve_and_process_article(self.driver, entry)
                 if article_data:
                     processed_articles.append(article_data)
@@ -281,11 +280,9 @@ class NewsService:
         logging.info(f"-> URL 처리 시도: {entry['rss_title']}")
         try:
             driver.get(entry['google_link'])
-            
             wait = WebDriverWait(driver, 10)
             all_links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
-            logging.debug(f"  -> 페이지에서 {len(all_links)}개의 링크 후보 발견.")
-
+            
             best_candidate = None
             max_text_length = -1
             for link_element in all_links:
@@ -294,6 +291,10 @@ class NewsService:
                     text = link_element.text.strip()
                     if not href or not text: continue
                     if "google.com" in href: continue
+
+                    # ⬇️⬇️⬇️ 핵심 변경점: mailto, javascript 링크를 명시적으로 제외 ⬇️⬇️⬇️
+                    if href.startswith(('mailto:', 'javascript:')):
+                        continue
 
                     cleaned_url = self._clean_url(href)
                     if cleaned_url and len(text) > max_text_length:
@@ -310,8 +311,12 @@ class NewsService:
             article = Article(validated_url)
             article.download()
             article.parse()
+            
+            # download() 실패 시 ArticleException이 발생하므로 여기서 텍스트 유무로 재확인
+            if not article.text and not article.title:
+                logging.warning(f"  -> ⚠️ 기사 내용 추출 실패 (403 Forbidden 등): {validated_url}")
+                return None
 
-            # ⬇️⬇️⬇️ 핵심 변경점: RSS의 제목이 아닌, 실제 페이지에서 추출한 최종 제목 사용 ⬇️⬇️⬇️
             final_title = article.title if article.title else entry['rss_title']
             logging.info(f"  -> ✅ 최종 URL/제목 확보: {final_title}")
 
@@ -322,6 +327,10 @@ class NewsService:
                 'image_url': self.scraper.get_image_url(validated_url),
                 'full_text': article.text
             }
+        except ArticleException as e:
+            # newspaper3k 라이브러리가 내보내는 특정 오류를 잡아서 더 상세히 기록
+            logging.error(f"  -> 🚨 기사 처리 라이브러리 오류(ArticleException): {e}")
+            return None
         except Exception:
             logging.error(f"  -> 🚨 URL 처리 중 예외 발생: {entry['rss_title']}", exc_info=True)
             return None
@@ -421,7 +430,6 @@ def main():
     except Exception as e:
         logging.critical("🔥 치명적인 오류 발생:", exc_info=True)
     finally:
-        # news_service 객체가 생성될 때 드라이버도 함께 생성되므로, 객체를 삭제하여 __del__을 호출
         if news_service:
             del news_service
 
