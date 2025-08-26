@@ -24,8 +24,14 @@ jobs:
 
     - name: Install dependencies
       run: |
+        # --- ⬇️⬇️⬇️ [디버깅용 코드 추가] ⬇️⬇️⬇️ ---
+        echo "--- Checking requirements.txt content ---"
+        cat requirements.txt # 이 파일의 실제 내용을 로그에 출력합니다.
+        echo "---------------------------------------"
+        # --- ⬆️⬆️⬆️ [디버깅용 코드 추가] ⬆️⬆️⬆️ ---
+
         python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        pip install -r requirements.txt
 
     - name: Create credential files from secrets
       run: |
