@@ -52,78 +52,7 @@ def get_kst_today_str():
 def markdown_to_html(text):
     return markdown.markdown(text) if text else ""
 
-# --- 핵심 기능 클래스 (NewsScraper, AIService, EmailService는 이전과 동일) ---
-# class NewsScraper:
-#     def __init__(self, config):
-#         self.config = config
-#         self.session = self._create_session()
 
-#     def _create_session(self):
-#         session = requests.Session()
-#         retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-#         adapter = HTTPAdapter(max_retries=retry)
-#         session.mount('http://', adapter)
-#         session.mount('https://', adapter)
-#         return session
-
-#     def get_image_url(self, article_url: str) -> str:
-#         try:
-#             headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
-#             response = self.session.get(article_url, headers=headers, timeout=10, allow_redirects=True)
-#             response.raise_for_status()
-#             soup = BeautifulSoup(response.text, "lxml")
-            
-#             # 1. 메타 태그 (가장 신뢰도 높음)
-#             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
-#             if meta_image and meta_image.get("content"):
-#                 meta_url = self._resolve_url(article_url, meta_image["content"])
-#                 if self._is_valid_candidate(meta_url) and self._validate_image(meta_url):
-#                     return meta_url
-
-#             # 2. 본문 <figure> 또는 <picture> 태그 (byline, klnews 등 최신 사이트 대응)
-#             for tag in soup.select('figure > img, picture > img', limit=5):
-#                 img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
-#                 if img_url and self._is_valid_candidate(img_url):
-#                     full_url = self._resolve_url(article_url, img_url)
-#                     if self._validate_image(full_url):
-#                         return full_url
-            
-#             # 3. 일반 <img> 태그 (가장 기본적인 방법)
-#             for img in soup.find_all("img", limit=10):
-#                 img_url = img.get("src") or img.get("data-src")
-#                 if img_url and self._is_valid_candidate(img_url):
-#                     full_url = self._resolve_url(article_url, img_url)
-#                     if self._validate_image(full_url):
-#                         return full_url
-
-#             return self.config.DEFAULT_IMAGE_URL
-#         except Exception:
-#             return self.config.DEFAULT_IMAGE_URL
-
-#     def _resolve_url(self, base_url, image_url):
-#         if image_url.startswith('//'): return 'https:' + image_url
-#         return urljoin(base_url, image_url)
-
-#     def _is_valid_candidate(self, image_url):
-#         if 'news.google.com' in image_url or 'lh3.googleusercontent.com' in image_url: return False
-#         return not any(pattern in image_url.lower() for pattern in self.config.UNWANTED_IMAGE_PATTERNS)
-
-#     def _validate_image(self, image_url):
-#         try:
-#             response = self.session.get(image_url, stream=True, timeout=5)
-#             response.raise_for_status()
-#             content_type = response.headers.get('Content-Type', '').lower()
-#             if 'image' not in content_type: return False
-#             img_data = BytesIO(response.content)
-#             with Image.open(img_data) as img:
-#                 width, height = img.size
-#                 if width < self.config.MIN_IMAGE_WIDTH or height < self.config.MIN_IMAGE_HEIGHT: return False
-#                 aspect_ratio = width / height
-#                 if aspect_ratio > 4.0 or aspect_ratio < 0.25: return False
-#                 if aspect_ratio < 1.2: return False
-#                 return True
-#         except Exception:
-#             return False
 class NewsScraper:
     def __init__(self, config):
         self.config = config
@@ -137,7 +66,6 @@ class NewsScraper:
         session.mount('https://', adapter)
         return session
 
-    # --- ⬇️⬇️⬇️ 수정된 get_image_url 함수 ⬇️⬇️⬇️ ---
     def get_image_url(self, article_url: str) -> str:
         try:
             headers = { "User-Agent": random.choice(self.config.USER_AGENTS) }
@@ -160,7 +88,6 @@ class NewsScraper:
                     if self._validate_image(full_url):
                         return full_url
             
-            # --- ⬇️⬇️⬇️ [수정 1] 특정 콘텐츠 영역 내부 이미지 우선 탐색 (byline.network 등 대응) ⬇️⬇️⬇️
             # 2.5. 기사 본문 영역(entry-content, article-body 등)을 특정하여 이미지 검색
             content_area = soup.select_one('.entry-content, .article-body, #article-view-content')
             if content_area:
@@ -192,7 +119,6 @@ class NewsScraper:
         if 'news.google.com' in image_url or 'lh3.googleusercontent.com' in image_url: return False
         return not any(pattern in image_url.lower() for pattern in self.config.UNWANTED_IMAGE_PATTERNS)
 
-    # --- ⬇️⬇️⬇️ 수정된 _validate_image 함수 ⬇️⬇️⬇️ ---
     def _validate_image(self, image_url):
         try:
             response = self.session.get(image_url, stream=True, timeout=5)
@@ -206,9 +132,6 @@ class NewsScraper:
                 aspect_ratio = width / height
                 if aspect_ratio > 4.0 or aspect_ratio < 0.25: return False
                 
-                # --- ⬇️⬇️⬇️ [수정 2] 정사각형에 가까운 이미지도 허용하도록 조건 완화 ⬇️⬇️⬇️
-                # if aspect_ratio < 1.2: return False # 이 조건이 너무 엄격하여 주석 처리
-                # --- ⬆️⬆️⬆️ 수정 완료 ⬆️⬆️⬆️
 
                 return True
         except Exception:
@@ -347,7 +270,6 @@ class AIService:
             print("✅ AI 브리핑 생성 성공!")
         return briefing
 
-# news_collector.py의 NewsService 클래스 전체를 이 코드로 교체해주세요.
 
 class NewsService:
     def __init__(self, config, scraper, ai_service):
@@ -486,7 +408,6 @@ class NewsService:
                 print(f"  ㄴ> ⚠️ {date_str} 검색 중 오류 발생: {e}")
         print(f"반복 검색 완료. 총 {len(all_entries)}개의 중복 없는 기사를 발견했습니다.")
 
-        # --- ⬇️⬇️⬇️ [수정] 누락되었던 시간 필터링 및 unique_articles 정의 로직 ⬇️⬇️⬇️ ---
         print("\n시간 필터링을 시작합니다...")
         valid_articles = []
         now = datetime.now(timezone.utc)
@@ -504,7 +425,6 @@ class NewsService:
         # 링크 기준 최종 중복 제거하여 unique_articles 생성
         unique_articles = list({article['link']: article for article in valid_articles}.values())
         print(f"총 {len(unique_articles)}개의 새로운 후보 기사를 발견했습니다.")
-        # --- ⬆️⬆️⬆️ 로직 추가 완료 ⬆️⬆️⬆️ ---
 
         print("\n--- 1단계: 실제 기사 URL 추출 시작 (순차 처리) ---")
         resolved_articles = []
@@ -546,7 +466,6 @@ class NewsService:
             print(f"❌ 발송 기록 파일 업데이트 실패: {e}")
 
 class EmailService:
-    # (변경 없음)
     def __init__(self, config):
         self.config = config
         self.credentials = self._get_credentials()
@@ -590,7 +509,6 @@ class EmailService:
             print(f"❌ 이메일 발송 실패: {error}")
 
 def main():
-    # (변경 없음)
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
     news_service = None # finally 블록에서 사용하기 위해 미리 선언
     try:
@@ -632,3 +550,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
