@@ -1,11 +1,11 @@
 # requirements.txt (최종 수정안)
 Markdown
-newspaper3k==0.2.8  # <-- [추가] 최신 버전 고정. feedparser>=5.2.1 요구로 충돌 방지. 뉴스 기사 추출 로직에 필수.
+newspaper3k==0.2.8 # <-- [추가] 최신 버전 고정. feedparser>=5.2.1 요구로 충돌 방지. 뉴스 기사 추출 로직에 필수.
 requests
 beautifulsoup4
 Jinja2
 Pillow
-pygooglenews==0.1.2  # <-- [추가] 최신 버전 고정. Google News 검색 기능에 사용되며, dateparser/feedparser 호환 유지.
+pygooglenews  # <-- [변경] ==0.1.2 제거. Python 3.12에서 0.1.3 설치로 Google News 검색 기능 유지하며, feedparser/dateparser 충돌 해결.
 selenium
 webdriver-manager
 selenium-stealth
@@ -18,7 +18,6 @@ lxml
 lxml_html_clean
 python-dotenv
 # --- ⬇️⬇️⬇️ [수정] 충돌 해결을 위해 버전 직접 명시 ⬇️⬇️⬇️ ---
-# feedparser>=6.0.11  # <-- [변경] pygooglenews의 <6.0.0 요구로 인해 완화. 이전 >=6.0.11이 필요했다면 이유 확인하세요.
-feedparser>=5.2.1,<6.0.0  # <-- [추가] pygooglenews/newspaper3k 호환 범위. 이 버전에서 RSS 피드 파싱(예: 뉴스 제목/날짜 추출)이 제대로 작동합니다.
+feedparser>=6.0.11  # <-- [변경] 원래로 복원. pygooglenews 0.1.3과 호환되어 RSS 피드 파싱(뉴스 제목/날짜 추출)이 제대로 작동합니다.
 # dateparser>=1.2.0 # <-- [변경] pygooglenews와의 충돌로 인해 제거 또는 조정. 이전 버전이 필요했다면 이유를 확인하세요.
 dateparser>=0.7.6,<0.8.0 # <-- [추가] pygooglenews 호환 범위로 설정. 이 버전에서 날짜 파싱 기능이 안정적으로 동작합니다.
