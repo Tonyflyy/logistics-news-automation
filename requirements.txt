@@ -1,4 +1,4 @@
-# requirements.txt (수정된 버전)
+# requirements.txt (최종 수정안)
 
 Markdown
 newspaper3k
@@ -18,3 +18,7 @@ openai
 lxml
 lxml_html_clean
 python-dotenv
+
+# --- ⬇️⬇️⬇️ [수정] 충돌 해결을 위해 버전 직접 명시 ⬇️⬇️⬇️ ---
+feedparser>=6.0.11
+dateparser>=1.2.0
