@@ -12,10 +12,11 @@ class Config:
     # API 키 및 수신자 목록 (환경 변수에서 로드)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    OPENAI_MODEL = "gpt-5" # 요청하신 gpt-5 모델로 설정
-    
+    GPT_MODEL='gpt-5'
     RECIPIENT_LIST = [email.strip() for email in os.getenv('RECIPIENT_LIST', '').split(',')]
     SENDER_EMAIL = "zzzfbwnsgh@gmail.com" # 실제 발신자 이메일로 변경 필요
+    SENDER_NAME = "YLP 뉴스레터"
+    
 
     # 파일 경로
     SENT_LINKS_FILE = 'sent_links_logistics.txt'
@@ -23,37 +24,35 @@ class Config:
     CREDENTIALS_FILE = 'credentials.json'
 
     # 이미지 스크래핑 설정
-    MIN_IMAGE_WIDTH = 500
-    MIN_IMAGE_HEIGHT = 250
+    MIN_IMAGE_WIDTH = 300
+    MIN_IMAGE_HEIGHT = 150
     DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News' # 기본 이미지 URL
     
     # 뉴스 수집 기간
     NEWS_FETCH_HOURS = 48
-    MAX_ARTICLES = 100
-
-    RSS_FEEDS = [
-    # [물류/IT/경제]
-    "https://www.klnews.co.kr/rss/S1N1.xml",      # 물류신문 (전체 기사)
-    "https://www.etnews.com/rss/all.xml",         # 전자신문 (전체 기사)
-    "https://www.ddaily.co.kr/rss/all.xml",      # 디지털데일리 (전체 기사)
-    "https://www.hankyung.com/feed/it",           # 한국경제 (IT 섹션)
-    "https://www.mk.co.kr/rss/30100041/",         # 매일경제 (산업 섹션)
-    "http://rss.edaily.co.kr/edaily_news.xml",   # 이데일리 (주요 뉴스)
-
-    # [종합]
-    "https://www.yonhapnewstv.co.kr/browse/feed/",# 연합뉴스TV (전체 기사)
-    "https://fs.jtbc.co.kr/RSS/newsflash.xml",   # JTBC (속보)
-    "https://rss.donga.com/total.xml",           # 동아일보 (전체 기사)
-        ]
+    MAX_ARTICLES = 500
 
     # 검색 키워드
     KEYWORDS = [
-        # 한글 키워드
-        '화물', '물류', '운송', '배송',  '정보망','주선사','화주',
-        '물류센터', '화물차', 
-        '물류 스타트업', '화물 플랫폼'
-        
-    ]
+    '화물', '물류', '화물운송', '육상운송', '화물차', '트럭',
+    '풀필먼트', '콜드체인', '라스트마일', '물류센터', '물류창고',
+    '운송', '배송', '택배', '물류산업',
+
+    # --- 2. 플랫폼 & 기술 ---
+    '화물정보망', '화물 플랫폼', '화물운송플랫폼',
+    '스마트물류', '물류자동화', '물류기술', '물류 로봇',
+
+    # --- 3. 전략/상위 개념 ---
+    '공급망', 'SCM', '이커머스 물류', '3PL', '4PL', '디지털 물류',
+
+    # --- 4. 대표 대기업/기관 ---
+    'CJ대한통운', '쿠팡로지스틱스', '한진택배', '롯데글로벌로지스',
+    '국토교통부 물류',
+
+    # --- 5. 화물 주선 & 플랫폼 (신규) ---
+    '화물 주선', '미들마일', '운송 중개', '화물운송주선업',
+    '티맵화물', '센디', '로지스퀘어', '고고엑스', '원콜', '카고링크'
+]
 
     UNWANTED_IMAGE_PATTERNS = [
         'logo', 'icon', 'favicon', 'ad', 'banner', 'btn', 'button', 'spinner', 'loading',
@@ -73,16 +72,4 @@ class Config:
         'contentsfeed.com',
         'googleadservices.com',
         'doubleclick.net',
-
     ]
-
-    DEFAULT_IMAGE_URL = "https://via.placeholder.com/600x300.png?text=News"
-
-
-
-
-
-
-
-
-
