@@ -1,4 +1,4 @@
-# requirements.txt
+# requirements.txt (수정된 버전)
 
 Markdown
 newspaper3k
@@ -6,7 +6,7 @@ requests
 beautifulsoup4
 Jinja2
 Pillow
-pygooglenews
+pygooglenews 
 selenium
 webdriver-manager
 selenium-stealth
