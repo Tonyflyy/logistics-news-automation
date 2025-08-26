@@ -18,6 +18,7 @@ lxml
 lxml_html_clean
 python-dotenv
 # --- ⬇️⬇️⬇️ [수정] 충돌 해결을 위해 버전 직접 명시 ⬇️⬇️⬇️ ---
-feedparser>=6.0.11
+# feedparser>=6.0.11  # <-- [변경] pygooglenews의 <6.0.0 요구로 인해 완화. 이전 >=6.0.11이 필요했다면 이유 확인하세요.
+feedparser>=5.2.1,<6.0.0  # <-- [추가] pygooglenews/newspaper3k 호환 범위. 이 버전에서 RSS 피드 파싱(예: 뉴스 제목/날짜 추출)이 제대로 작동합니다.
 # dateparser>=1.2.0 # <-- [변경] pygooglenews와의 충돌로 인해 제거 또는 조정. 이전 버전이 필요했다면 이유를 확인하세요.
 dateparser>=0.7.6,<0.8.0 # <-- [추가] pygooglenews 호환 범위로 설정. 이 버전에서 날짜 파싱 기능이 안정적으로 동작합니다.
