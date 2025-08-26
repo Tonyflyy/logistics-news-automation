@@ -27,14 +27,13 @@ jobs:
         echo "--- Checking requirements.txt content ---"
         cat requirements.txt
         echo "---------------------------------------"
-        
+       
         python -m pip install --upgrade pip
-        
+       
         # --- ⬇️⬇️⬇️ [수정] pip 캐시 삭제 명령어 추가 ⬇️⬇️⬇️ ---
         pip cache purge
         # --- ⬆️⬆️⬆️ [수정] 여기까지 ⬆️⬆️⬆️ ---
-
-        pip install -r requirements.txt
+        pip install -r requirements.txt -v  # <-- [추가] verbose 로그로 의존성 해결 과정 상세 출력. 반복 에러 분석에 사용.
 
     - name: Create credential files from secrets
       run: |
