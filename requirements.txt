@@ -1,15 +1,20 @@
 # requirements.txt
-python-dotenv
+
+Markdown
+newspaper3k
 requests
 beautifulsoup4
-lxml[html_clean]
-jinja2
+Jinja2
 Pillow
+pygooglenews
+selenium
+webdriver-manager
+selenium-stealth
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 google-generativeai
-markdown
-newspaper3k
-feedparser
 openai
+lxml
+lxml_html_clean
+python-dotenv
