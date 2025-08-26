@@ -24,13 +24,16 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # --- ⬇️⬇️⬇️ [디버깅용 코드 추가] ⬇️⬇️⬇️ ---
         echo "--- Checking requirements.txt content ---"
-        cat requirements.txt # 이 파일의 실제 내용을 로그에 출력합니다.
+        cat requirements.txt
         echo "---------------------------------------"
-        # --- ⬆️⬆️⬆️ [디버깅용 코드 추가] ⬆️⬆️⬆️ ---
-
+        
         python -m pip install --upgrade pip
+        
+        # --- ⬇️⬇️⬇️ [수정] pip 캐시 삭제 명령어 추가 ⬇️⬇️⬇️ ---
+        pip cache purge
+        # --- ⬆️⬆️⬆️ [수정] 여기까지 ⬆️⬆️⬆️ ---
+
         pip install -r requirements.txt
 
     - name: Create credential files from secrets
