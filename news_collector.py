@@ -6,6 +6,7 @@ import markdown
 import json
 import time
 import random
+import logging
 from datetime import datetime, timezone, timedelta, date
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -59,9 +60,19 @@ def markdown_to_html(text):
 
 def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
     """최근 7일간의 유가 데이터로 차트 이미지를 생성하고 파일 경로를 반환합니다."""
+    logger = logging.getLogger(__name__)  # 로그거 생성 (반복 문제 분석용)
     try:
-        # 1. 한글 폰트 설정 (NanumGothic 없으면 sans-serif로 대체)
-        plt.rcParams['font.family'] = 'sans-serif'  # NanumGothic -> sans-serif
+        # 1. 한글 폰트 설정 (NanumGothic 우선, 없으면 sans-serif 대체)
+        from matplotlib import font_manager
+        font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
+        logger.info(f"NanumGothic 폰트 경로 확인: {font_path}")  # 상세 로그 추가 (경로 확인)
+        if os.path.exists(font_path):
+            font_manager.fontManager.addfont(font_path)
+            plt.rcParams['font.family'] = 'NanumGothic'
+            logger.info("NanumGothic 폰트 로드 성공")  # 상세 로그 추가 (로드 성공)
+        else:
+            logger.warning("NanumGothic 폰트가 없습니다. sans-serif로 대체합니다.")  # 상세 로그 추가 (로드 실패)
+            plt.rcParams['font.family'] = 'sans-serif'
         plt.rcParams['axes.unicode_minus'] = False  # 마이너스 폰트 깨짐 방지
         # 2. 데이터 분리 및 준비
         dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
@@ -88,10 +99,10 @@ def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
         plt.savefig(filename, dpi=150)
         plt.close(fig)  # 메모리 해제
         
-        print(f"✅ 유가 추이 차트 이미지 '{filename}'를 생성했습니다.")
+        logger.info(f"유가 추이 차트 이미지 '{filename}'를 생성했습니다. (폰트 로드 상태 확인)")  # 상세 로그 추가 (생성 완료)
         return filename
     except Exception as e:
-        print(f"❌ 차트 이미지 생성 실패: {e}")
+        logger.error(f"차트 이미지 생성 실패: {e.__class__.__name__}: {e}")  # 상세 로그 추가 (에러 상세)
         return None
     
 def get_cheapest_stations(config, count=20):
@@ -830,6 +841,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
