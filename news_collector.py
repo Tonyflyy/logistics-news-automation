@@ -8,12 +8,16 @@ import time
 import random
 from datetime import datetime, timezone, timedelta, date
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
 from urllib.parse import urljoin, urlparse
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 from newspaper import Article
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 # 서드파티 라이브러리
 import requests
 from requests.adapters import HTTPAdapter
@@ -52,6 +56,179 @@ def get_kst_today_str():
 def markdown_to_html(text):
     return markdown.markdown(text) if text else ""
 
+
+def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
+    """최근 7일간의 유가 데이터로 차트 이미지를 생성하고 파일 경로를 반환합니다."""
+    try:
+        # 1. 한글 폰트 설정 (맑은 고딕)
+        plt.rcParams['font.family'] = 'Malgun Gothic'
+        plt.rcParams['axes.unicode_minus'] = False # 마이너스 폰트 깨짐 방지
+
+        # 2. 데이터 분리 및 준비
+        dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
+        gasoline_prices = [float(p['PRICE']) for p in seven_day_data['gasoline']]
+        diesel_prices = [float(p['PRICE']) for p in seven_day_data['diesel']]
+
+        # 3. 차트 생성
+        fig, ax = plt.subplots(figsize=(7, 4)) # 차트 크기 조절
+        
+        ax.plot(dates, gasoline_prices, 'o-', label='휘발유', color='#3498db')
+        ax.plot(dates, diesel_prices, 'o-', label='경유', color='#e74c3c')
+        
+        # 4. 차트 꾸미기
+        ax.set_title("최근 7일 휘발유·경유 가격 추이", fontsize=15, pad=20)
+        ax.legend()
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+        
+        # Y축 단위를 '1,700원' 형식으로 변경
+        formatter = FuncFormatter(lambda y, _: f'{int(y):,}원')
+        ax.yaxis.set_major_formatter(formatter)
+        
+        ax.tick_params(axis='x', rotation=0)
+        fig.tight_layout()
+
+        # 5. 이미지 파일로 저장
+        plt.savefig(filename, dpi=150)
+        plt.close(fig) # 메모리 해제
+        
+        print(f"✅ 유가 추이 차트 이미지 '{filename}'를 생성했습니다.")
+        return filename
+    except Exception as e:
+        print(f"❌ 차트 이미지 생성 실패: {e}")
+        return None
+    
+def get_cheapest_stations(config, count=20):
+    """오피넷 API로 전국 최저가 경유 주유소 정보를 가져옵니다."""
+    if not config.OPINET_API_KEY:
+        return []
+
+    # API 파라미터 설정: prodcd=D047 (경유), cnt=가져올 개수
+    url = f"http://www.opinet.co.kr/api/lowTop10.do?out=json&code={config.OPINET_API_KEY}&prodcd=D047&cnt={count}"
+    
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json()['RESULT']['OIL']
+        
+        cheapest_stations = []
+        for station in data:
+            # 주소에서 '시/도'와 '시/군/구' 정보만 간추리기
+            address_parts = station.get('VAN_ADR', '').split(' ')
+            location = " ".join(address_parts[:2]) if len(address_parts) >= 2 else address_parts[0]
+            
+            cheapest_stations.append({
+                "name": station.get('OS_NM'),
+                "price": f"{int(station.get('PRICE', 0)):,}원",
+                "location": location
+            })
+        
+        print(f"✅ 전국 최저가 주유소 Top {len(cheapest_stations)} 정보를 가져왔습니다.")
+        return cheapest_stations
+
+    except Exception as e:
+        print(f"❌ 최저가 주유소 정보 조회 실패: {e}")
+        return []
+    
+def get_price_indicators(config):
+    """오피넷 API를 사용하여 주요 도시별 유가, 요소수 가격, 추세, 최저가 주유소 정보를 가져와 하나의 객체로 반환합니다."""
+    if not config.OPINET_API_KEY:
+        print("⚠️ 오피넷 API 키가 설정되지 않았습니다.")
+        return {}
+
+    # 최종 데이터를 담을 기본 구조 정의
+    indicator_data = {
+        "timestamp": datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M 기준'),
+        "city_prices": [],
+        "trend_comment": "",
+        "seven_day_data": {},
+        "cheapest_stations": []
+    }
+    
+    # --- 1. 주요 도시별 휘발유/경유 가격 가져오기 (API 호출 1회) ---
+    city_data_map = {code: {"name": name} for code, name in config.AREA_CODE_MAP.items() if code in config.TARGET_AREA_CODES}
+    try:
+        sido_price_url = f"http://www.opinet.co.kr/api/avgSidoPrice.do?out=json&code={config.OPINET_API_KEY}"
+        response = requests.get(sido_price_url, timeout=5)
+        response.raise_for_status()
+        sido_data = response.json()['RESULT']['OIL']
+        for oil in sido_data:
+            area_code = oil.get('SIDOCD')
+            if area_code in config.TARGET_AREA_CODES:
+                prod_code = oil.get('PRODCD')
+                price = f"{float(oil['PRICE']):,.0f}원"
+                if prod_code == 'B027': # 보통휘발유
+                    city_data_map[area_code]['gasoline'] = price
+                elif prod_code == 'D047': # 자동차용경유
+                    city_data_map[area_code]['diesel'] = price
+        print("✅ 주요 도시별 유가 정보를 가져왔습니다.")
+    except Exception as e:
+        print(f"❌ 시도별 유가 정보 조회 실패: {e}")
+
+    # --- 2. 주요 도시별 요소수 평균 가격 가져오기 (도시별 API 호출) ---
+    print("-> 주요 도시별 요소수 가격 정보를 조회합니다...")
+    for area_code in config.TARGET_AREA_CODES:
+        urea_url = f"http://www.opinet.co.kr/api/ureaPrice.do?out=json&code={config.OPINET_API_KEY}&area={area_code}"
+        try:
+            response = requests.get(urea_url, timeout=5)
+            response.raise_for_status()
+            urea_data = json.loads(response.text, strict=False)['RESULT']['OIL']
+            total_price, stock_count = 0, 0
+            for station in urea_data:
+                stock_yn = station.get('STOCK_YN', '').strip()
+                price_str = station.get('PRICE', '').strip()
+                if stock_yn == 'Y' and price_str:
+                    total_price += int(price_str)
+                    stock_count += 1
+            if stock_count > 0:
+                avg_price = total_price / stock_count
+                city_data_map[area_code]['urea'] = f"{avg_price:,.0f}원/L"
+            time.sleep(0.5)
+        except Exception as e:
+            area_name = config.AREA_CODE_MAP.get(area_code, "알 수 없는 지역")
+            print(f"❌ {area_name} 요소수 가격 조회 실패: {e}")
+            continue
+    print("✅ 주요 도시별 요소수 가격 정보를 가져왔습니다.")
+
+    # --- 3. 전국 가격 추세 및 차트용 데이터 가져오기 (API 호출 1회) ---
+    try:
+        trend_url = f"http://www.opinet.co.kr/api/avgRecentPrice.do?out=json&code={config.OPINET_API_KEY}"
+        response = requests.get(trend_url, timeout=5)
+        response.raise_for_status()
+        trend_data = response.json()['RESULT']['OIL']
+        
+        # 차트용 7일 데이터 준비
+        gasoline_7day = sorted([p for p in trend_data if p['PRODCD'] == 'B027'], key=lambda x: x['DATE'])
+        diesel_7day = sorted([p for p in trend_data if p['PRODCD'] == 'D047'], key=lambda x: x['DATE'])
+        if gasoline_7day and diesel_7day:
+            indicator_data["seven_day_data"] = {"gasoline": gasoline_7day, "diesel": diesel_7day}
+            print("✅ 차트용 7일 유가 데이터를 준비했습니다.")
+
+        # 경유 가격 추세 분석
+        if len(diesel_7day) >= 2:
+            today_price = float(diesel_7day[-1]['PRICE'])
+            yesterday_price = float(diesel_7day[-2]['PRICE'])
+            trend_comment = ""
+            if today_price > yesterday_price: trend_comment += "어제보다 소폭 상승했습니다."
+            elif today_price < yesterday_price: trend_comment += "어제보다 소폭 하락했습니다."
+            else: trend_comment += "어제와 가격이 동일합니다."
+            
+            if len(diesel_7day) >= 7:
+                week_ago_price = float(diesel_7day[0]['PRICE'])
+                if today_price > week_ago_price: trend_comment += " 주간 단위로는 상승세입니다."
+                elif today_price < week_ago_price: trend_comment += " 주간 단위로는 하락세입니다."
+            
+            indicator_data["trend_comment"] = f"전국 경유 가격은 {trend_comment}"
+            print("✅ 전국 유가 추세 정보를 가져왔습니다.")
+    except Exception as e:
+        print(f"❌ 유가 추세 정보 조회 실패: {e}")
+
+    # --- 4. 전국 최저가 주유소 정보 가져오기 ---
+    indicator_data["cheapest_stations"] = get_cheapest_stations(config, count=20)
+
+    # --- 최종 데이터 구조 정리 ---
+    indicator_data["city_prices"] = list(city_data_map.values())
+    return indicator_data
+    
 
 class NewsScraper:
     def __init__(self, config):
@@ -528,30 +705,51 @@ class EmailService:
                 token.write(creds.to_json())
         return creds
 
-    def create_email_body(self, news_list, ai_briefing_html, today_date_str):
+    def create_email_body(self, news_list, ai_briefing_html, today_date_str, price_indicators):
         env = Environment(loader=FileSystemLoader('.'))
         template = env.get_template('email_template.html')
-        return template.render(news_list=news_list, today_date=today_date_str, ai_briefing=ai_briefing_html)
 
-    def send_email(self, subject, body):
+        return template.render(
+            news_list=news_list, 
+            today_date=today_date_str, 
+            ai_briefing=ai_briefing_html, 
+            price_indicators = price_indicators
+        )
+
+    def send_email(self, subject, body_html, image_path=None):
         if not self.config.RECIPIENT_LIST:
             print("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
             return
+
         try:
             service = build('gmail', 'v1', credentials=self.credentials)
-            message = MIMEText(body, 'html', 'utf-8')
+        
+            # 이메일 본문과 이미지를 함께 보내기 위한 MIMEMultipart 객체 생성
+            message = MIMEMultipart('related')
             message['To'] = ", ".join(self.config.RECIPIENT_LIST)
-            
             message['From'] = formataddr((self.config.SENDER_NAME, self.config.SENDER_EMAIL))
-            
             message['Subject'] = subject
+
+            # HTML 본문 첨부
+            msg_alternative = MIMEMultipart('alternative')
+            msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
+            message.attach(msg_alternative)
+
+            # 이미지 파일이 있으면 첨부
+            if image_path and os.path.exists(image_path):
+                with open(image_path, 'rb') as f:
+                    msg_image = MIMEImage(f.read())
+                    # Content-ID 설정. HTML의 <img src="cid:price_chart">에서 이 ID를 사용함
+                    msg_image.add_header('Content-ID', '<price_chart>')
+                    message.attach(msg_image)
+                    print(f"✅ 이메일에 '{image_path}' 이미지를 첨부했습니다.")
+
             encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
             create_message = {'raw': encoded_message}
             send_message = service.users().messages().send(userId="me", body=create_message).execute()
             print(f"✅ 이메일 발송 성공! (Message ID: {send_message['id']})")
         except HttpError as error:
             print(f"❌ 이메일 발송 실패: {error}")
-
 
 def load_newsletter_history(filepath='previous_newsletter.json'):
     """이전에 발송된 뉴스레터 내용을 JSON 파일에서 불러옵니다."""
@@ -576,7 +774,6 @@ def save_newsletter_history(news_list, filepath='previous_newsletter.json'):
     except Exception as e:
         print(f"❌ 뉴스레터 내용 저장 실패: {e}")
 
-
 def main():
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
     try:
@@ -586,31 +783,39 @@ def main():
         news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
 
-        # (추가) 프로세스 시작 시, 이전 뉴스 기록을 불러옴
+        # 1. 이전 뉴스 기록 및 모든 가격 지표 가져오기
         previous_top_news = load_newsletter_history()
+        price_indicators = get_price_indicators(config)
 
+        # 2. (추가) 유가 데이터로 차트 이미지 생성
+        chart_image_file = None
+        if price_indicators.get("seven_day_data"):
+            chart_image_file = create_price_trend_chart(price_indicators["seven_day_data"])
+
+        # 3. 최신 뉴스 수집 및 AI 선별
         all_news = news_service.get_fresh_news()
         if not all_news:
             print("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
             return
 
-        # (변경) AI 뉴스 선별 시, 이전 뉴스 기록을 함께 전달
         top_news = ai_service.select_top_news(all_news, previous_top_news)
         if not top_news:
             print("ℹ️ AI가 뉴스를 선별하지 못했습니다. 프로세스를 종료합니다.")
             return
 
+        # 4. AI 브리핑 생성 및 이메일 본문 준비
         ai_briefing_md = ai_service.generate_briefing(top_news)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
-
         today_str = get_kst_today_str()
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_news)}"
-        email_body = email_service.create_email_body(top_news, ai_briefing_html, today_str)
         
-        email_service.send_email(email_subject, email_body)
+        email_body = email_service.create_email_body(top_news, ai_briefing_html, today_str, price_indicators)
+        
+        # 5. (추가) 이메일 발송 시 생성된 차트 이미지 파일 경로 전달
+        email_service.send_email(email_subject, email_body, chart_image_file)
+        
+        # 6. 로그 및 히스토리 저장
         news_service.update_sent_links_log(top_news)
-
-        # (추가) 모든 프로세스 성공 후, 오늘 보낸 뉴스를 다음을 위해 기록
         save_newsletter_history(top_news)
 
         print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
@@ -619,6 +824,7 @@ def main():
         print(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
         print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+
 
 if __name__ == "__main__":
     main()
