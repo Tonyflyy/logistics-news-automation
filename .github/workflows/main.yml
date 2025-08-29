@@ -38,7 +38,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y fonts-nanum  # NanumGothic 폰트 설치
-        fc-cache -fv  # 폰트 캐시 갱신
+        sudo fc-cache -fv  # 폰트 캐시 갱신
+        if fc-list | grep -i "NanumGothic"; then
+          echo "NanumGothic 설치 성공"
+        else
+          echo "NanumGothic 설치 실패"
+        fi  # 설치 성공 여부 로그 출력
     - name: Create credential files from secrets
       run: |
         echo "${{ secrets.GMAIL_CREDENTIALS }}" > credentials.json
