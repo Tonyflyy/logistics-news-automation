@@ -204,31 +204,50 @@ class AIService:
                 time.sleep(2 ** attempt) # 재시도 전 대기 시간 증가
         return None
 
-    def select_top_news(self, news_list):
-        """뉴스 목록에서 중복을 제거하고 가장 중요한 Top 10 뉴스를 선정합니다."""
+    def select_top_news(self, news_list, previous_news_list):
+        """
+        뉴스 목록에서 중복을 제거하고 가장 중요한 Top 10 뉴스를 선정합니다.
+        - news_list: 오늘의 후보 뉴스 목록
+        - previous_news_list: 어제 발송했던 뉴스 목록
+        """
         print(f"AI 뉴스 선별 시작... (대상: {len(news_list)}개)")
-        
-        context = "\n\n".join(
+
+        # (추가) 어제 뉴스 목록을 AI에게 전달할 형식으로 변환
+        previous_news_context = "어제는 발송된 뉴스가 없습니다."
+        if previous_news_list:
+            previous_news_context = "\n\n".join(
+                [f"- 제목: {news['title']}\n  요약: {news['ai_summary']}" for news in previous_news_list]
+            )
+
+        # 오늘의 후보 뉴스 목록을 형식에 맞게 변환
+        today_candidates_context = "\n\n".join(
             [f"기사 #{i}\n제목: {news['title']}\n요약: {news['ai_summary']}" for i, news in enumerate(news_list)]
         )
+
+        system_prompt = "당신은 독자에게 매일 신선하고 가치 있는 정보를 제공하는 것을 최우선으로 하는 대한민국 최고의 물류 전문 뉴스 편집장입니다. 당신의 응답은 반드시 JSON 형식이어야 합니다."
         
-        system_prompt = "당신은 대한민국 최고의 물류 전문 뉴스 편집장입니다. 당신의 임무는 JSON 형식으로만 응답하는 것입니다."
+        # (변경) 두 가지 중복 제거 규칙이 모두 포함된 최종 프롬프트
         user_prompt = f"""
-        아래 뉴스 목록을 분석하여 다음 두 가지 작업을 순서대로 수행해주세요.
+        [어제 발송된 주요 뉴스]
+        {previous_news_context}
 
-        작업 1: 주제별 그룹화 및 대표 기사 선정
-        - 내용이 사실상 동일한 뉴스들을 하나의 그룹으로 묶으세요.
-        - 각 그룹에서 제목이 가장 구체적이고 요약 정보가 풍부한 기사를 **단 하나만** 대표로 선정하세요.
-        - **하나의 동일한 사건에 대해서는 반드시 단 하나의 대표 기사만 최종 후보가 될 수 있습니다.**
+        ---
 
-        작업 2: 최종 Top 10 선정
-        - 대표 기사로 선정된 후보들 중에서, 시장 동향, 기술 혁신 등을 종합적으로 고려하여 가장 중요도가 높은 순서대로 최종 10개를 선정해주세요.
+        [오늘의 후보 뉴스 목록]
+        {today_candidates_context}
 
-        [뉴스 목록]
-        {context}
+        ---
+
+        [당신의 가장 중요한 임무와 규칙]
+        1.  **새로운 주제 최우선**: [오늘의 후보 뉴스 목록]에서 뉴스를 선택할 때, [어제 발송된 주요 뉴스]와 **주제가 겹치지 않는 새로운 소식**을 최우선으로 선정해야 합니다.
+        2.  **중요 후속 기사만 허용**: 어제 뉴스의 후속 기사는 '계획 발표'에서 '정식 계약 체결'처럼 **매우 중대한 진전이 있을 경우에만** 포함시키고, 단순 진행 상황 보도는 과감히 제외하세요.
+        3.  **오늘 뉴스 내 중복 제거**: [오늘의 후보 뉴스 목록] 내에서도 동일한 사건(예: 'A사 물류센터 개장')을 다루는 기사가 여러 언론사에서 나왔다면, 가장 제목이 구체적이고 내용이 풍부한 **기사 단 하나만**을 대표로 선정해야 합니다.
+
+        [작업 지시]
+        위의 규칙들을 가장 엄격하게 준수하여, [오늘의 후보 뉴스 목록] 중에서 독자에게 가장 가치있는 최종 기사 10개의 번호(인덱스)를 선정해주세요.
 
         [출력 형식]
-        - 반드시 'selected_indices' 키에 당신이 최종 선정한 기사 10개의 번호(인덱스)를 숫자 배열로 담은 JSON 객체로만 응답해야 합니다.
+        - 반드시 'selected_indices' 키에 최종 선정한 기사 10개의 인덱스를 숫자 배열로 담은 JSON 객체로만 응답해야 합니다.
         - 예: {{"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}}
         """
         
@@ -387,28 +406,47 @@ class NewsService:
     def get_fresh_news(self):
         print("최신 뉴스 수집을 시작합니다...")
         client = GoogleNews(lang='ko', country='KR')
-        query = ' OR '.join(self.config.KEYWORDS) + ' -해운 -항공'
-
+        
+        # --- ⬇️ (변경) 그룹 검색 로직 시작 ⬇️ ---
         all_entries = []
-        unique_links = set()
-        days_to_search = (self.config.NEWS_FETCH_HOURS // 24) + 1
-        print(f"총 {days_to_search}일 동안의 뉴스를 하루씩 나누어 검색합니다.")
-        for i in range(days_to_search):
-            target_date = date.today() - timedelta(days=i)
-            date_str = target_date.strftime("%Y-%m-%d")
-            print(f"-> {date_str}의 뉴스를 검색 중...")
+        unique_links = set() # 링크 중복을 실시간으로 확인하기 위한 set
+
+        # 검색할 기간 설정
+        end_date = date.today()
+        start_date = end_date - timedelta(hours=self.config.NEWS_FETCH_HOURS)
+        
+        print(f"검색 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
+
+        # 설정된 키워드 그룹을 하나씩 순회
+        for i, group in enumerate(self.config.KEYWORD_GROUPS):
+            query = ' OR '.join(f'"{keyword}"' for keyword in group) # 키워드에 공백이 있어도 안전하도록 "" 처리
+            query += ' -해운 -항공' # 제외 키워드 추가
+            
+            print(f"\n({i+1}/{len(self.config.KEYWORD_GROUPS)}) 그룹 검색 중: [{', '.join(group)}]")
+
             try:
-                search_results = client.search(query, from_=date_str, to_=date_str)
+                # 각 그룹별로 뉴스 검색 실행
+                search_results = client.search(query, from_=start_date.strftime('%Y-%m-%d'), to_=end_date.strftime('%Y-%m-%d'))
+                
+                # 중복을 확인하며 결과 수집
                 for entry in search_results['entries']:
                     link = entry.get('link')
                     if link and link not in unique_links:
                         all_entries.append(entry)
                         unique_links.add(link)
-            except Exception as e:
-                print(f"  ㄴ> ⚠️ {date_str} 검색 중 오류 발생: {e}")
-        print(f"반복 검색 완료. 총 {len(all_entries)}개의 중복 없는 기사를 발견했습니다.")
+                
+                print(f" ➡️ {len(search_results['entries'])}개 발견, 현재까지 총 {len(all_entries)}개의 고유 기사 확보")
 
-        print("\n시간 필터링을 시작합니다...")
+                # IP 차단을 피하기 위해 각 요청 사이에 2초 대기
+                time.sleep(2)
+
+            except Exception as e:
+                print(f" ❌ 그룹 검색 중 오류 발생: {e}")
+        
+        print(f"\n모든 그룹 검색 완료. 총 {len(all_entries)}개의 중복 없는 기사를 발견했습니다.")
+        # --- ⬆️ (변경) 그룹 검색 로직 종료 ⬆️ ---
+
+        # 시간 필터링 (이미 검색 시 기간을 정했지만, 더 정확하게 시간 단위로 필터링)
         valid_articles = []
         now = datetime.now(timezone.utc)
         time_limit = timedelta(hours=self.config.NEWS_FETCH_HOURS)
@@ -416,26 +454,32 @@ class NewsService:
         for entry in all_entries:
             if 'published_parsed' in entry:
                 published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=timezone.utc)
-                time_difference = now - published_dt
-                if time_difference <= time_limit:
+                if (now - published_dt) <= time_limit:
                     valid_articles.append(entry)
         
         print(f"시간 필터링 후 {len(valid_articles)}개의 유효한 기사가 남았습니다.")
         
-        # 링크 기준 최종 중복 제거하여 unique_articles 생성
-        unique_articles = list({article['link']: article for article in valid_articles}.values())
-        print(f"총 {len(unique_articles)}개의 새로운 후보 기사를 발견했습니다.")
+        # 이미 발송된 링크 제외
+        new_articles = [article for article in valid_articles if self._clean_and_validate_url(article['link']) not in self.sent_links]
+        print(f"이미 발송된 기사를 제외하고, 총 {len(new_articles)}개의 새로운 후보 기사를 발견했습니다.")
 
-        print("\n--- 1단계: 실제 기사 URL 추출 시작 (순차 처리) ---")
-        resolved_articles = []
-        for entry in unique_articles[:30]:
-            resolved_info = self._resolve_google_news_url(entry)
-            if resolved_info and resolved_info['link'] not in self.sent_links:
-                 resolved_articles.append(resolved_info)
-        print(f"--- 1단계 완료: {len(resolved_articles)}개의 유효한 실제 URL 확보 ---\n")
-        
-        if not resolved_articles:
+        if not new_articles:
             print("처리할 새로운 기사가 없습니다.")
+            return []
+
+        # --- 나머지 로직은 기존과 거의 동일 ---
+        print("\n--- 1단계: 실제 기사 URL 추출 시작 (병렬 처리) ---")
+        resolved_articles = []
+        with ThreadPoolExecutor(max_workers=5) as executor: # URL 추출도 병렬로 처리하여 속도 개선
+            future_to_entry = {executor.submit(self._resolve_google_news_url, entry): entry for entry in new_articles[:self.config.MAX_ARTICLES]}
+            for future in as_completed(future_to_entry):
+                resolved_info = future.result()
+                if resolved_info:
+                    resolved_articles.append(resolved_info)
+        print(f"--- 1단계 완료: {len(resolved_articles)}개의 유효한 실제 URL 확보 ---\n")
+
+        if not resolved_articles:
+            print("URL 추출 후 처리할 새로운 기사가 없습니다.")
             return []
 
         print(f"--- 2단계: 기사 콘텐츠 병렬 처리 시작 (대상: {len(resolved_articles)}개) ---")
@@ -508,9 +552,33 @@ class EmailService:
         except HttpError as error:
             print(f"❌ 이메일 발송 실패: {error}")
 
+
+def load_newsletter_history(filepath='previous_newsletter.json'):
+    """이전에 발송된 뉴스레터 내용을 JSON 파일에서 불러옵니다."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            history = json.load(f)
+            print(f"✅ 이전 뉴스레터 기록({len(history)}개)을 불러왔습니다.")
+            return history
+    except FileNotFoundError:
+        print("ℹ️ 이전 뉴스레터 기록 파일이 없습니다. 첫 실행으로 간주합니다.")
+        return []
+    except Exception as e:
+        print(f"❌ 이전 뉴스레터 기록 로딩 실패: {e}")
+        return []
+
+def save_newsletter_history(news_list, filepath='previous_newsletter.json'):
+    """발송 완료된 뉴스레터 내용을 다음 실행을 위해 JSON 파일로 저장합니다."""
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(news_list, f, ensure_ascii=False, indent=4)
+        print(f"✅ 이번 뉴스레터 내용({len(news_list)}개)을 다음 실행을 위해 저장했습니다.")
+    except Exception as e:
+        print(f"❌ 뉴스레터 내용 저장 실패: {e}")
+
+
 def main():
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
-    news_service = None # finally 블록에서 사용하기 위해 미리 선언
     try:
         config = Config()
         news_scraper = NewsScraper(config)
@@ -518,12 +586,16 @@ def main():
         news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
 
+        # (추가) 프로세스 시작 시, 이전 뉴스 기록을 불러옴
+        previous_top_news = load_newsletter_history()
+
         all_news = news_service.get_fresh_news()
         if not all_news:
             print("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
             return
 
-        top_news = ai_service.select_top_news(all_news)
+        # (변경) AI 뉴스 선별 시, 이전 뉴스 기록을 함께 전달
+        top_news = ai_service.select_top_news(all_news, previous_top_news)
         if not top_news:
             print("ℹ️ AI가 뉴스를 선별하지 못했습니다. 프로세스를 종료합니다.")
             return
@@ -538,16 +610,15 @@ def main():
         email_service.send_email(email_subject, email_body)
         news_service.update_sent_links_log(top_news)
 
-        print("🎉 모든 프로세스가 성공적으로 완료되었습니다.")
+        # (추가) 모든 프로세스 성공 후, 오늘 보낸 뉴스를 다음을 위해 기록
+        save_newsletter_history(top_news)
+
+        print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
+
     except (ValueError, FileNotFoundError) as e:
         print(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
-        print(f"🔥 치명적인 오류 발생: {e}")
-    finally:
-        # 프로그램이 어떻게 종료되든 (성공, 실패, 예외) 항상 브라우저 드라이버를 확실하게 종료
-        if news_service:
-            del news_service
+        print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 if __name__ == "__main__":
     main()
-
