@@ -60,8 +60,8 @@ def markdown_to_html(text):
 def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
     """최근 7일간의 유가 데이터로 차트 이미지를 생성하고 파일 경로를 반환합니다."""
     try:
-        # 1. 한글 폰트 설정 (NanumGothic으로 대체)
-        plt.rcParams['font.family'] = 'NanumGothic'  # Malgun Gothic -> NanumGothic
+        # 1. 한글 폰트 설정 (NanumGothic 없으면 sans-serif로 대체)
+        plt.rcParams['font.family'] = 'sans-serif'  # NanumGothic -> sans-serif
         plt.rcParams['axes.unicode_minus'] = False  # 마이너스 폰트 깨짐 방지
         # 2. 데이터 분리 및 준비
         dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
@@ -830,6 +830,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
