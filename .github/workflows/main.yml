@@ -34,7 +34,11 @@ jobs:
         pip cache purge
         # --- ⬆️⬆️⬆️ [수정] 여기까지 ⬆️⬆️⬆️ ---
         pip install -r requirements.txt -v  # <-- [추가] verbose 로그로 의존성 해결 과정 상세 출력. 반복 에러 분석에 사용.
-
+    - name: Install Korean font (Nanum Gothic)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y fonts-nanum  # NanumGothic 폰트 설치
+        fc-cache -fv  # 폰트 캐시 갱신
     - name: Create credential files from secrets
       run: |
         echo "${{ secrets.GMAIL_CREDENTIALS }}" > credentials.json
