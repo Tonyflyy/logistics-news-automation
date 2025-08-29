@@ -45,6 +45,7 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         RECIPIENT_LIST: ${{ secrets.RECIPIENT_LIST }}
+        OPINET_API_KEY: ${{ secrets.OPINET_API_KEY }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: python news_collector.py
 
