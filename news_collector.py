@@ -755,7 +755,12 @@ def load_newsletter_history(filepath='previous_newsletter.json'):
     """이전에 발송된 뉴스레터 내용을 JSON 파일에서 불러옵니다."""
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            history = json.load(f)
+            content = f.read()
+            # 👇 파일 내용이 비어있는지 확인하는 로직 추가
+            if not content:
+                print("ℹ️ 이전 뉴스레터 기록 파일이 비어있습니다.")
+                return []
+            history = json.loads(content)
             print(f"✅ 이전 뉴스레터 기록({len(history)}개)을 불러왔습니다.")
             return history
     except FileNotFoundError:
@@ -828,4 +833,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
