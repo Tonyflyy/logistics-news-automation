@@ -106,7 +106,7 @@ def get_cheapest_stations(config, count=20):
     url = f"http://www.opinet.co.kr/api/lowTop10.do?out=json&code={config.OPINET_API_KEY}&prodcd=D047&cnt={count}"
     
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()['RESULT']['OIL']
         
@@ -148,7 +148,7 @@ def get_price_indicators(config):
     city_data_map = {code: {"name": name} for code, name in config.AREA_CODE_MAP.items() if code in config.TARGET_AREA_CODES}
     try:
         sido_price_url = f"http://www.opinet.co.kr/api/avgSidoPrice.do?out=json&code={config.OPINET_API_KEY}"
-        response = requests.get(sido_price_url, timeout=5)
+        response = requests.get(sido_price_url, timeout=10)
         response.raise_for_status()
         sido_data = response.json()['RESULT']['OIL']
         for oil in sido_data:
@@ -169,7 +169,7 @@ def get_price_indicators(config):
     for area_code in config.TARGET_AREA_CODES:
         urea_url = f"http://www.opinet.co.kr/api/ureaPrice.do?out=json&code={config.OPINET_API_KEY}&area={area_code}"
         try:
-            response = requests.get(urea_url, timeout=5)
+            response = requests.get(urea_url, timeout=10)
             response.raise_for_status()
             urea_data = json.loads(response.text, strict=False)['RESULT']['OIL']
             total_price, stock_count = 0, 0
@@ -182,7 +182,7 @@ def get_price_indicators(config):
             if stock_count > 0:
                 avg_price = total_price / stock_count
                 city_data_map[area_code]['urea'] = f"{avg_price:,.0f}원/L"
-            time.sleep(0.5)
+            time.sleep(1.5)
         except Exception as e:
             area_name = config.AREA_CODE_MAP.get(area_code, "알 수 없는 지역")
             print(f"❌ {area_name} 요소수 가격 조회 실패: {e}")
@@ -192,7 +192,7 @@ def get_price_indicators(config):
     # --- 3. 전국 가격 추세 및 차트용 데이터 가져오기 (API 호출 1회) ---
     try:
         trend_url = f"http://www.opinet.co.kr/api/avgRecentPrice.do?out=json&code={config.OPINET_API_KEY}"
-        response = requests.get(trend_url, timeout=5)
+        response = requests.get(trend_url, timeout=10)
         response.raise_for_status()
         trend_data = response.json()['RESULT']['OIL']
         
@@ -828,3 +828,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
