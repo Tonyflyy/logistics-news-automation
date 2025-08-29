@@ -179,7 +179,7 @@ def get_price_indicators(config):
             if stock_count > 0:
                 avg_price = total_price / stock_count
                 city_data_map[area_code]['urea'] = f"{avg_price:,.0f}원/L"
-            time.sleep(3)
+            time.sleep(5)
         except Exception as e:
             area_name = config.AREA_CODE_MAP.get(area_code, "알 수 없는 지역")
             print(f"❌ {area_name} 요소수 가격 조회 실패: {e}")
@@ -234,7 +234,7 @@ class NewsScraper:
 
     def _create_session(self):
         session = requests.Session()
-        retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        retry = Retry(total=5, backoff_factor=1.0, status_forcelist=[429, 500, 502, 503, 504])
         adapter = HTTPAdapter(max_retries=retry)
         session.mount('http://', adapter)
         session.mount('https://', adapter)
@@ -612,7 +612,7 @@ class NewsService:
                 print(f" ➡️ {len(search_results['entries'])}개 발견, 현재까지 총 {len(all_entries)}개의 고유 기사 확보")
 
                 # IP 차단을 피하기 위해 각 요청 사이에 2초 대기
-                time.sleep(2)
+                time.sleep(4)
 
             except Exception as e:
                 print(f" ❌ 그룹 검색 중 오류 발생: {e}")
@@ -830,6 +830,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
