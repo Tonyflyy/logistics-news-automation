@@ -62,13 +62,15 @@ def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
     try:
         # 1. 한글 폰트 설정 (맑은 고딕)
         plt.rcParams['font.family'] = 'Malgun Gothic'
-        plt.rcParams['axes.unicode_minus'] = False  # 마이너스 폰트 깨짐 방지
+        plt.rcParams['axes.unicode_minus'] = False # 마이너스 폰트 깨짐 방지
+
         # 2. 데이터 분리 및 준비
         dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
         gasoline_prices = [float(p['PRICE']) for p in seven_day_data['gasoline']]
         diesel_prices = [float(p['PRICE']) for p in seven_day_data['diesel']]
+
         # 3. 차트 생성
-        fig, ax = plt.subplots(figsize=(7, 4))  # 차트 크기 조절
+        fig, ax = plt.subplots(figsize=(7, 4)) # 차트 크기 조절
         
         ax.plot(dates, gasoline_prices, 'o-', label='휘발유', color='#3498db')
         ax.plot(dates, diesel_prices, 'o-', label='경유', color='#e74c3c')
@@ -78,15 +80,16 @@ def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
         ax.legend()
         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
         
-        # Y축 단위를 '1,789원' 형식으로 변경 (1원 단위 반영)
-        formatter = FuncFormatter(lambda y, _: f'{int(y):,}원')  # int(y) 유지, 1원 단위로 표시
+        # Y축 단위를 '1,700원' 형식으로 변경
+        formatter = FuncFormatter(lambda y, _: f'{int(y):,}원')
         ax.yaxis.set_major_formatter(formatter)
         
         ax.tick_params(axis='x', rotation=0)
         fig.tight_layout()
+
         # 5. 이미지 파일로 저장
         plt.savefig(filename, dpi=150)
-        plt.close(fig)  # 메모리 해제
+        plt.close(fig) # 메모리 해제
         
         print(f"✅ 유가 추이 차트 이미지 '{filename}'를 생성했습니다.")
         return filename
@@ -830,6 +833,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
