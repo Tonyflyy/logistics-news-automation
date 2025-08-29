@@ -12,6 +12,7 @@ class Config:
     # API 키 및 수신자 목록 (환경 변수에서 로드)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    OPINET_API_KEY = os.getenv('OPINET_API_KEY')
     GPT_MODEL='gpt-5'
     RECIPIENT_LIST = [email.strip() for email in os.getenv('RECIPIENT_LIST', '').split(',')]
     SENDER_EMAIL = "zzzfbwnsgh@gmail.com" # 실제 발신자 이메일로 변경 필요
@@ -29,7 +30,7 @@ class Config:
     DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News' # 기본 이미지 URL
     
     # 뉴스 수집 기간
-    NEWS_FETCH_HOURS = 48
+    NEWS_FETCH_HOURS = 24
     MAX_ARTICLES = 500
 
     # 검색 키워드
@@ -55,6 +56,13 @@ class Config:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0"
     ]
 
+    AREA_CODE_MAP = {
+        '01': '서울', '02': '부산', '03': '대구', '04': '인천',
+        '05': '광주', '06': '대전', '07': '울산', '08': '경기',
+    }
+
+    TARGET_AREA_CODES = ['01', '02', '03', '04', '05', '06', '07', '08']
+
     # AI 모델 설정
     GEMINI_MODEL = 'gemini-1.5-flash-latest' # 혹은 gemini-1.5-flash 등 필요에 따라 변경
 
@@ -63,4 +71,3 @@ class Config:
         'googleadservices.com',
         'doubleclick.net',
     ]
-
