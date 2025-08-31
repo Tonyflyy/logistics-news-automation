@@ -41,6 +41,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # 구글 인증 관련
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -700,18 +701,46 @@ class EmailService:
         self.credentials = self._get_credentials()
 
     def _get_credentials(self):
-        creds = None
-        if os.path.exists(self.config.TOKEN_FILE):
-            creds = Credentials.from_authorized_user_file(self.config.TOKEN_FILE, ['https://www.googleapis.com/auth/gmail.send'])
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
+        """GitHub Actions Secret 또는 로컬 token.json을 사용하여 인증 정보를 가져옵니다."""
+        gcp_json_credentials_str = os.getenv('GCP_SA_KEY_JSON')
+
+        # GitHub Actions 환경일 경우 (Secret이 존재할 때)
+        if gcp_json_credentials_str:
+            print("-> 서비스 계정(GitHub Secret)으로 인증을 시도합니다.")
+            try:
+                credentials_info = json.loads(gcp_json_credentials_str)
+                credentials = service_account.Credentials.from_service_account_info(
+                    credentials_info,
+                    scopes=['https://www.googleapis.com/auth/gmail.send'],
+                    subject=self.config.SENDER_EMAIL # 이 계정 이름으로 메일 발송
+                )
+                print("✅ 서비스 계정으로 인증 성공!")
+                return credentials
+            except Exception as e:
+                print(f"❌ 서비스 계정 인증 실패: {e}")
+                return None
+
+        # 로컬 환경일 경우 (Secret이 없을 때)
+        else:
+            print("-> 로컬 token.json 방식으로 인증을 시도합니다.")
+            creds = None
+            if os.path.exists(self.config.TOKEN_FILE):
+                creds = Credentials.from_authorized_user_file(self.config.TOKEN_FILE, ['https://www.googleapis.com/auth/gmail.send'])
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    try:
+                        creds.refresh(Request())
+                    except Exception as e:
+                        print(f"❌ 토큰 갱신 실패, 재인증이 필요합니다: {e}")
+                        os.remove(self.config.TOKEN_FILE) # 만료된 토큰 파일 삭제
+                        creds = None # 재인증 유도
+
+            if not creds:
                 flow = InstalledAppFlow.from_client_secrets_file(self.config.CREDENTIALS_FILE, ['https://www.googleapis.com/auth/gmail.send'])
                 creds = flow.run_local_server(port=0)
-            with open(self.config.TOKEN_FILE, 'w') as token:
-                token.write(creds.to_json())
-        return creds
+                with open(self.config.TOKEN_FILE, 'w') as token:
+                    token.write(creds.to_json())
+            return creds
 
     def create_email_body(self, news_list, ai_briefing_html, today_date_str, price_indicators):
         env = Environment(loader=FileSystemLoader('.'))
@@ -841,7 +870,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
