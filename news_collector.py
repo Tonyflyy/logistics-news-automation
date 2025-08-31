@@ -496,8 +496,16 @@ class NewsService:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         
         try:
+            # --- 👇 디버깅 로그 추가 👇 ---
+            print("    -> ChromeDriver 설치를 시작합니다...")
             service = ChromeService(ChromeDriverManager().install())
+            print("    -> ChromeDriver 설치 완료.")
+            
+            print("    -> Chrome 브라우저를 시작합니다...")
             driver = webdriver.Chrome(service=service, options=chrome_options)
+            print("    -> Chrome 브라우저 시작 완료.")
+            # --- 👆 디버깅 로그 추가 👆 ---
+            
             stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
                     webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
             driver.set_page_load_timeout(15)
@@ -870,6 +878,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
