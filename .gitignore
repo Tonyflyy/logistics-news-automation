@@ -8,6 +8,7 @@ __pycache__/
 # Google OAuth credentials
 token.json
 credentials.json
+service-account-key.json
 
 # VSCode settings
 .vscode/
