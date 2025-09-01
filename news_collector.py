@@ -1,6 +1,8 @@
 # news_collector.py
 
 import os
+import smtplib
+import platform
 import base64
 import markdown
 import json
@@ -61,49 +63,49 @@ def markdown_to_html(text):
 
 def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
     """최근 7일간의 유가 데이터로 차트 이미지를 생성하고 파일 경로를 반환합니다."""
-    logger = logging.getLogger(__name__)  # 로그거 생성 (반복 문제 분석용)
     try:
-        # 1. 한글 폰트 설정 (NanumGothic 우선, 없으면 sans-serif 대체)
-        from matplotlib import font_manager
-        font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
-        logger.info(f"NanumGothic 폰트 경로 확인: {font_path}")  # 상세 로그 추가 (경로 확인)
-        if os.path.exists(font_path):
-            font_manager.fontManager.addfont(font_path)
-            plt.rcParams['font.family'] = 'NanumGothic'
-            logger.info("NanumGothic 폰트 로드 성공")  # 상세 로그 추가 (로드 성공)
-        else:
-            logger.warning("NanumGothic 폰트가 없습니다. sans-serif로 대체합니다.")  # 상세 로그 추가 (로드 실패)
-            plt.rcParams['font.family'] = 'sans-serif'
-        plt.rcParams['axes.unicode_minus'] = False  # 마이너스 폰트 깨짐 방지
-        # 2. 데이터 분리 및 준비
+        # --- 👇 운영체제에 따라 자동으로 한글 폰트를 설정하도록 변경 ---
+        system_name = platform.system()
+        if system_name == 'Windows':
+            plt.rc('font', family='Malgun Gothic')
+        elif system_name == 'Darwin': # Mac OS
+            plt.rc('font', family='AppleGothic')
+        else: # Linux (GitHub Actions 등)
+            # Nanum 폰트가 설치되어 있다고 가정
+            if os.path.exists('/usr/share/fonts/truetype/nanum/NanumGothic.ttf'):
+                plt.rc('font', family='NanumGothic')
+            else:
+                print("⚠️ NanumGothic 폰트가 없어 기본 폰트로 출력됩니다 (한글 깨짐 가능성).")
+
+        plt.rcParams['axes.unicode_minus'] = False
+        # --- 👆 여기까지 변경 ---
+
+        # 데이터 분리 및 차트 생성 (이하 로직은 동일)
         dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
         gasoline_prices = [float(p['PRICE']) for p in seven_day_data['gasoline']]
         diesel_prices = [float(p['PRICE']) for p in seven_day_data['diesel']]
-        # 3. 차트 생성
-        fig, ax = plt.subplots(figsize=(7, 4))  # 차트 크기 조절
-        
+
+        fig, ax = plt.subplots(figsize=(7, 4))
         ax.plot(dates, gasoline_prices, 'o-', label='휘발유', color='#3498db')
         ax.plot(dates, diesel_prices, 'o-', label='경유', color='#e74c3c')
-        
-        # 4. 차트 꾸미기
+
         ax.set_title("최근 7일 휘발유·경유 가격 추이", fontsize=15, pad=20)
         ax.legend()
         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-        
-        # Y축 단위를 '1,789원' 형식으로 변경
+
         formatter = FuncFormatter(lambda y, _: f'{int(y):,}원')
         ax.yaxis.set_major_formatter(formatter)
-        
+
         ax.tick_params(axis='x', rotation=0)
         fig.tight_layout()
-        # 5. 이미지 파일로 저장
+
         plt.savefig(filename, dpi=150)
-        plt.close(fig)  # 메모리 해제
-        
-        logger.info(f"유가 추이 차트 이미지 '{filename}'를 생성했습니다. (폰트 로드 상태 확인)")  # 상세 로그 추가 (생성 완료)
+        plt.close(fig)
+
+        print(f"✅ 유가 추이 차트 이미지 '{filename}'를 생성했습니다.")
         return filename
     except Exception as e:
-        logger.error(f"차트 이미지 생성 실패: {e.__class__.__name__}: {e}")  # 상세 로그 추가 (에러 상세)
+        print(f"❌ 차트 이미지 생성 실패: {e}")
         return None
     
 def get_cheapest_stations(config, count=20):
@@ -698,13 +700,23 @@ class NewsService:
 class EmailService:
     def __init__(self, config):
         self.config = config
-        self.credentials = self._get_credentials()
+        # 인증 객체 생성 로직이 더 이상 필요 없으므로 __init__이 매우 간단해집니다.
+
+    def create_email_body(self, news_list, ai_briefing_html, today_date_str, price_indicators):
+        env = Environment(loader=FileSystemLoader('.'))
+        template = env.get_template('email_template.html')
+        return template.render(
+            news_list=news_list, 
+            today_date=today_date_str, 
+            ai_briefing=ai_briefing_html, 
+            price_indicators=price_indicators
+        )
 
     def _get_credentials(self):
-        """GitHub Secret, 로컬 키 파일, 로컬 token 순서로 인증을 시도합니다."""
+        """서비스 계정으로만 인증을 시도합니다 (GitHub Actions 또는 로컬 파일)."""
         gcp_json_credentials_str = os.getenv('GCP_SA_KEY_JSON')
         
-        # 1. GitHub Actions 환경일 경우 (Secret 변수 사용)
+        # 1. GitHub Actions 환경일 경우
         if gcp_json_credentials_str:
             print("-> 서비스 계정(GitHub Secret)으로 인증을 시도합니다.")
             try:
@@ -720,7 +732,7 @@ class EmailService:
                 print(f"❌ 서비스 계정(Secret) 인증 실패: {e}")
                 return None
         
-        # 2. 로컬에 서비스 계정 키 파일이 있을 경우 (파일 직접 읽기)
+        # 2. 로컬 환경일 경우
         elif os.path.exists('service-account-key.json'):
             print("-> 로컬 서비스 계정 파일(service-account-key.json)으로 인증을 시도합니다.")
             try:
@@ -734,83 +746,54 @@ class EmailService:
             except Exception as e:
                 print(f"❌ 로컬 서비스 계정 파일 인증 실패: {e}")
                 return None
-
-        # 3. 위 두 가지가 모두 없을 경우, 로컬 token.json 방식으로 인증 시도 (기존 방식)
+        
+        # 3. 위 두 가지가 모두 실패한 경우
         else:
-            print("-> 로컬 token.json 방식으로 인증을 시도합니다.")
-            creds = None
-            try:
-                if os.path.exists(self.config.TOKEN_FILE):
-                    creds = Credentials.from_authorized_user_file(self.config.TOKEN_FILE, ['https://www.googleapis.com/auth/gmail.send'])
-                
-                if not creds or not creds.valid:
-                    if creds and creds.expired and creds.refresh_token:
-                        print("   -> 만료된 토큰을 갱신합니다...")
-                        creds.refresh(Request())
-                    else:
-                        print("   -> 새 토큰 발급을 위해 재인증을 시작합니다...")
-                        flow = InstalledAppFlow.from_client_secrets_file(self.config.CREDENTIALS_FILE, ['https://www.googleapis.com/auth/gmail.send'])
-                        creds = flow.run_local_server(port=0)
-                    
-                    with open(self.config.TOKEN_FILE, 'w') as token:
-                        token.write(creds.to_json())
-                        print(f"   -> 새 토큰을 '{self.config.TOKEN_FILE}'에 저장했습니다.")
-                
-                print("✅ 로컬 token.json으로 인증 성공!")
-                return creds
+            print("🚨 인증 정보를 찾을 수 없습니다. GitHub Secret 또는 service-account-key.json 파일이 필요합니다.")
+            return None
 
-            except Exception as e:
-                print(f"❌ 로컬 token.json 인증/갱신 실패: {e}")
-                if os.path.exists(self.config.TOKEN_FILE):
-                    os.remove(self.config.TOKEN_FILE)
-                    print(f"   -> 문제가 있는 토큰 파일 '{self.config.TOKEN_FILE}'을 삭제했습니다. 다시 실행하여 재인증해주세요.")
-                return None
-
-    def create_email_body(self, news_list, ai_briefing_html, today_date_str, price_indicators):
-        env = Environment(loader=FileSystemLoader('.'))
-        template = env.get_template('email_template.html')
-
-        return template.render(
-            news_list=news_list, 
-            today_date=today_date_str, 
-            ai_briefing=ai_briefing_html, 
-            price_indicators = price_indicators
-        )
 
     def send_email(self, subject, body_html, image_path=None):
         if not self.config.RECIPIENT_LIST:
             print("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
             return
 
-        try:
-            service = build('gmail', 'v1', credentials=self.credentials)
+        # .env 또는 GitHub Secret에서 SMTP 정보 가져오기
+        sender_email = self.config.SENDER_EMAIL
+        app_password = os.getenv('GMAIL_APP_PASSWORD') # Secret에서 앱 비밀번호를 읽어옴
+
+        if not app_password:
+            print("🚨 GMAIL_APP_PASSWORD Secret이 설정되지 않았습니다.")
+            return
+
+        # MIMEMultipart 객체 생성
+        msg = MIMEMultipart('related')
+        msg['From'] = formataddr((self.config.SENDER_NAME, sender_email))
+        msg['To'] = ", ".join(self.config.RECIPIENT_LIST)
+        msg['Subject'] = subject
+
+        # HTML 본문 첨부
+        msg_alternative = MIMEMultipart('alternative')
+        msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
+        msg.attach(msg_alternative)
+
+        # 이미지 파일 첨부
+        if image_path and os.path.exists(image_path):
+            with open(image_path, 'rb') as f:
+                msg_image = MIMEImage(f.read())
+                msg_image.add_header('Content-ID', '<price_chart>')
+                msg.attach(msg_image)
         
-            # 이메일 본문과 이미지를 함께 보내기 위한 MIMEMultipart 객체 생성
-            message = MIMEMultipart('related')
-            message['To'] = ", ".join(self.config.RECIPIENT_LIST)
-            message['From'] = formataddr((self.config.SENDER_NAME, self.config.SENDER_EMAIL))
-            message['Subject'] = subject
-
-            # HTML 본문 첨부
-            msg_alternative = MIMEMultipart('alternative')
-            msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
-            message.attach(msg_alternative)
-
-            # 이미지 파일이 있으면 첨부
-            if image_path and os.path.exists(image_path):
-                with open(image_path, 'rb') as f:
-                    msg_image = MIMEImage(f.read())
-                    # Content-ID 설정. HTML의 <img src="cid:price_chart">에서 이 ID를 사용함
-                    msg_image.add_header('Content-ID', '<price_chart>')
-                    message.attach(msg_image)
-                    print(f"✅ 이메일에 '{image_path}' 이미지를 첨부했습니다.")
-
-            encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-            create_message = {'raw': encoded_message}
-            send_message = service.users().messages().send(userId="me", body=create_message).execute()
-            print(f"✅ 이메일 발송 성공! (Message ID: {send_message['id']})")
-        except HttpError as error:
-            print(f"❌ 이메일 발송 실패: {error}")
+        try:
+            # Gmail SMTP 서버에 연결
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()  # TLS 암호화
+            server.login(sender_email, app_password) # 앱 비밀번호로 로그인
+            server.send_message(msg)
+            server.quit()
+            print(f"✅ 이메일 발송 성공! (수신자: {msg['To']})")
+        except Exception as e:
+            print(f"❌ SMTP 이메일 발송 실패: {e}")
 
 def load_newsletter_history(filepath='previous_newsletter.json'):
     """이전에 발송된 뉴스레터 내용을 JSON 파일에서 불러옵니다."""
