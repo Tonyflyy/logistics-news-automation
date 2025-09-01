@@ -824,59 +824,47 @@ def save_newsletter_history(news_list, filepath='previous_newsletter.json'):
         print(f"❌ 뉴스레터 내용 저장 실패: {e}")
 
 def main():
-    print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
+    print("🚀 뉴스레터 기능 테스트를 시작합니다 (데이터 지표 + 차트).")
     try:
+        # --- 1. 기본 설정 및 이메일 서비스 준비 ---
         config = Config()
-        news_scraper = NewsScraper(config)
-        ai_service = AIService(config)
-        news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
 
-        # 1. 이전 뉴스 기록 및 모든 가격 지표 가져오기
-        previous_top_news = load_newsletter_history()
+        # --- 2. 오피넷 API로 모든 데이터 지표 가져오기 ---
         price_indicators = get_price_indicators(config)
 
-        # 2. (추가) 유가 데이터로 차트 이미지 생성
+        # --- 3. 데이터로 차트 이미지 생성 ---
         chart_image_file = None
         if price_indicators.get("seven_day_data"):
             chart_image_file = create_price_trend_chart(price_indicators["seven_day_data"])
 
-        # 3. 최신 뉴스 수집 및 AI 선별
-        all_news = news_service.get_fresh_news()
-        if not all_news:
-            print("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
-            return
+        # --- 4. 뉴스/AI 관련 부분은 테스트용 빈 데이터로 설정 ---
+        top_news = [] # 뉴스 목록은 비워둠
+        ai_briefing_html = "<i>(AI 브리핑 및 뉴스 목록은 테스트에서 생략됩니다.)</i>"
 
-        top_news = ai_service.select_top_news(all_news, previous_top_news)
-        if not top_news:
-            print("ℹ️ AI가 뉴스를 선별하지 못했습니다. 프로세스를 종료합니다.")
-            return
-
-        # 4. AI 브리핑 생성 및 이메일 본문 준비
-        ai_briefing_md = ai_service.generate_briefing(top_news)
-        ai_briefing_html = markdown_to_html(ai_briefing_md)
+        # --- 5. 이메일 본문 생성 ---
         today_str = get_kst_today_str()
-        email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_news)}"
+        email_subject = f"[{today_str}] 📊 데이터 지표 및 차트 기능 테스트"
         
-        email_body = email_service.create_email_body(top_news, ai_briefing_html, today_str, price_indicators)
+        email_body = email_service.create_email_body(
+            top_news, 
+            ai_briefing_html, 
+            today_str, 
+            price_indicators
+        )
         
-        # 5. (추가) 이메일 발송 시 생성된 차트 이미지 파일 경로 전달
+        # --- 6. 이메일 발송 (차트 이미지 포함) ---
         email_service.send_email(email_subject, email_body, chart_image_file)
         
-        # 6. 로그 및 히스토리 저장
-        news_service.update_sent_links_log(top_news)
-        save_newsletter_history(top_news)
+        print("\n🎉 테스트 이메일 발송이 성공적으로 완료되었습니다.")
 
-        print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
-
-    except (ValueError, FileNotFoundError) as e:
-        print(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
         print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 
 if __name__ == "__main__":
     main()
+
 
 
 
