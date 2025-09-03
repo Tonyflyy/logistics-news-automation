@@ -71,3 +71,14 @@ class Config:
         'googleadservices.com',
         'doubleclick.net',
     ]
+
+    # 날씨 API 설정
+    WEATHER_API_KEY = os.getenv('WEATHER_API_KEY') 
+
+    # 주요 물류 거점 좌표 (단기예보용 nx, ny / 중기예보용 regId)
+    LOGISTICS_HUBS = {
+        "수도권": {"nx": 60, "ny": 127, "regId_temp": "11B10101", "regId_land": "11B00000"},
+        "영남권": {"nx": 98, "ny": 76,  "regId_temp": "11H20201", "regId_land": "11H20000"},
+        "호남권": {"nx": 58, "ny": 74,  "regId_temp": "11F20501", "regId_land": "11F20000"},
+        "강원권": {"nx": 92, "ny": 131, "regId_temp": "11D20501", "regId_land": "11D20000"}
+    }
