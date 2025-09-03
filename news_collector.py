@@ -8,6 +8,7 @@ import markdown
 import json
 import time
 import random
+from weather_service import WeatherService 
 import logging
 from datetime import datetime, timezone, timedelta, date
 from email.mime.text import MIMEText
@@ -702,14 +703,15 @@ class EmailService:
         self.config = config
         # 인증 객체 생성 로직이 더 이상 필요 없으므로 __init__이 매우 간단해집니다.
 
-    def create_email_body(self, news_list, ai_briefing_html, today_date_str, price_indicators):
+    def create_email_body(self, news_list, ai_briefing_html, today_date_str, price_indicators, has_weather_dashboard=False):
         env = Environment(loader=FileSystemLoader('.'))
         template = env.get_template('email_template.html')
         return template.render(
-            news_list=news_list, 
-            today_date=today_date_str, 
-            ai_briefing=ai_briefing_html, 
-            price_indicators=price_indicators
+            news_list=news_list,
+            today_date=today_date_str,
+            ai_briefing=ai_briefing_html,
+            price_indicators=price_indicators,
+            has_weather_dashboard=has_weather_dashboard 
         )
 
     def _get_credentials(self):
@@ -753,42 +755,39 @@ class EmailService:
             return None
 
 
-    def send_email(self, subject, body_html, image_path=None):
+    def send_email(self, subject, body_html, image_paths={}):
         if not self.config.RECIPIENT_LIST:
             print("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
             return
 
-        # .env 또는 GitHub Secret에서 SMTP 정보 가져오기
         sender_email = self.config.SENDER_EMAIL
-        app_password = os.getenv('GMAIL_APP_PASSWORD') # Secret에서 앱 비밀번호를 읽어옴
+        app_password = os.getenv('GMAIL_APP_PASSWORD')
 
         if not app_password:
             print("🚨 GMAIL_APP_PASSWORD Secret이 설정되지 않았습니다.")
             return
 
-        # MIMEMultipart 객체 생성
         msg = MIMEMultipart('related')
         msg['From'] = formataddr((self.config.SENDER_NAME, sender_email))
         msg['To'] = ", ".join(self.config.RECIPIENT_LIST)
         msg['Subject'] = subject
 
-        # HTML 본문 첨부
         msg_alternative = MIMEMultipart('alternative')
         msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
         msg.attach(msg_alternative)
 
-        # 이미지 파일 첨부
-        if image_path and os.path.exists(image_path):
-            with open(image_path, 'rb') as f:
-                msg_image = MIMEImage(f.read())
-                msg_image.add_header('Content-ID', '<price_chart>')
-                msg.attach(msg_image)
+        # ✨ 개선: 딕셔너리를 순회하며 모든 이미지 첨부
+        for cid, path in image_paths.items():
+            if path and os.path.exists(path):
+                with open(path, 'rb') as f:
+                    msg_image = MIMEImage(f.read())
+                    msg_image.add_header('Content-ID', f'<{cid}>')
+                    msg.attach(msg_image)
         
         try:
-            # Gmail SMTP 서버에 연결
             server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()  # TLS 암호화
-            server.login(sender_email, app_password) # 앱 비밀번호로 로그인
+            server.starttls()
+            server.login(sender_email, app_password)
             server.send_message(msg)
             server.quit()
             print(f"✅ 이메일 발송 성공! (수신자: {msg['To']})")
@@ -832,16 +831,20 @@ def main():
         news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
 
-        # 1. 이전 뉴스 기록 및 모든 가격 지표 가져오기
-        previous_top_news = load_newsletter_history()
+        # --- 1. 날씨 대시보드 생성 ---
+        weather_service = WeatherService(config)
+        weather_dashboard_file = weather_service.create_dashboard_image()
+        if not weather_dashboard_file:
+            print("❌ 날씨 대시보드 이미지 생성에 실패했습니다.")
+
+        # --- 2. 유가 정보 및 차트 생성 ---
         price_indicators = get_price_indicators(config)
-
-        # 2. (추가) 유가 데이터로 차트 이미지 생성
-        chart_image_file = None
+        price_chart_file = None
         if price_indicators.get("seven_day_data"):
-            chart_image_file = create_price_trend_chart(price_indicators["seven_day_data"])
+            price_chart_file = create_price_trend_chart(price_indicators["seven_day_data"])
 
-        # 3. 최신 뉴스 수집 및 AI 선별
+        # --- 3. 최신 뉴스 수집 및 선별 ---
+        previous_top_news = load_newsletter_history()
         all_news = news_service.get_fresh_news()
         if not all_news:
             print("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
@@ -852,39 +855,83 @@ def main():
             print("ℹ️ AI가 뉴스를 선별하지 못했습니다. 프로세스를 종료합니다.")
             return
 
-        # 4. AI 브리핑 생성 및 이메일 본문 준비
+        # --- 4. 이메일 본문 준비 ---
         ai_briefing_md = ai_service.generate_briefing(top_news)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
         today_str = get_kst_today_str()
+        
+        email_body = email_service.create_email_body(
+            top_news, ai_briefing_html, today_str, price_indicators,
+            has_weather_dashboard=(weather_dashboard_file is not None)
+        )
+        
+        # --- 5. 이메일 발송 ---
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_news)}"
         
-        email_body = email_service.create_email_body(top_news, ai_briefing_html, today_str, price_indicators)
+        image_paths = {}
+        if weather_dashboard_file: image_paths['weather_dashboard'] = weather_dashboard_file
+        if price_chart_file: image_paths['price_chart'] = price_chart_file
         
-        # 5. (추가) 이메일 발송 시 생성된 차트 이미지 파일 경로 전달
-        email_service.send_email(email_subject, email_body, chart_image_file)
+        email_service.send_email(email_subject, email_body, image_paths)
         
-        # 6. 로그 및 히스토리 저장
+        # --- 6. 로그 및 히스토리 저장 ---
         news_service.update_sent_links_log(top_news)
         save_newsletter_history(top_news)
 
         print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
 
-    except (ValueError, FileNotFoundError) as e:
-        print(f"🚨 설정 또는 파일 오류: {e}")
     except Exception as e:
         print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 
+def main_for_test():
+    """뉴스 수집을 건너뛰고 날씨/유가 정보만으로 이메일을 생성하는 테스트용 함수"""
+    print("🚀 뉴스레터 테스트 프로세스를 시작합니다 (뉴스 수집 건너뛰기).")
+    try:
+        config = Config()
+        email_service = EmailService(config)
+
+        # --- 1. 날씨 대시보드 생성 ---
+        print("\n--- ☀️ 날씨 대시보드 생성 시작 ---")
+        # weather_service.py가 필요합니다.
+        from weather_service import WeatherService
+        weather_service = WeatherService(config)
+        weather_dashboard_file = weather_service.create_dashboard_image()
+        if not weather_dashboard_file:
+            print("❌ 날씨 대시보드 이미지 생성에 실패했습니다.")
+
+        # --- 2. 유가 정보 및 차트 생성 ---
+        price_indicators = get_price_indicators(config)
+        price_chart_file = None
+        if price_indicators.get("seven_day_data"):
+            price_chart_file = create_price_trend_chart(price_indicators["seven_day_data"])
+
+        # --- 3. [생략] 최신 뉴스 수집 및 선별 ---
+        # 뉴스 관련 객체들은 비어있는 상태로 전달
+        top_news = []
+        ai_briefing_html = "<h1>[테스트 모드]</h1><p>뉴스 수집 및 AI 브리핑 생성을 건너뛰었습니다.</p>"
+        
+        # --- 4. 이메일 본문 준비 ---
+        today_str = get_kst_today_str()
+        email_body = email_service.create_email_body(
+            top_news, ai_briefing_html, today_str, price_indicators,
+            has_weather_dashboard=(weather_dashboard_file is not None)
+        )
+        
+        # --- 5. 이메일 발송 ---
+        email_subject = f"[{today_str}] YLP 뉴스레터 (테스트 발송)"
+        
+        image_paths = {}
+        if weather_dashboard_file: image_paths['weather_dashboard'] = weather_dashboard_file
+        if price_chart_file: image_paths['price_chart'] = price_chart_file
+        
+        email_service.send_email(email_subject, email_body, image_paths)
+        
+        print("\n🎉 테스트 프로세스가 성공적으로 완료되었습니다.")
+
+    except Exception as e:
+        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+
 if __name__ == "__main__":
-    main()
-
-
-
-
-
-
-
-
-
-
-
+     main()
+     
