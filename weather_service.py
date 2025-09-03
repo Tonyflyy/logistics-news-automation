@@ -131,7 +131,7 @@ class WeatherService:
             days = [(datetime.now(ZoneInfo('Asia/Seoul')) + timedelta(days=i)).strftime('%Y%m%d') for i in range(7)]
             start_date = datetime.strptime(days[0], "%Y%m%d").strftime("%m/%d")
             end_date = datetime.strptime(days[-1], "%Y%m%d").strftime("%m/%d")
-            draw.text((50, 30), f"지역별 주간 날씨 체크 ({start_date} ~ {end_date})", font=title_font, fill='#111827')
+            draw.text((50, 30), f"권역별 주간 날씨 체크 ({start_date} ~ {end_date})", font=title_font, fill='#111827')
             short_base_date, short_base_time = self._get_short_term_base_datetime()
             update_time_str = f"업데이트: {short_base_date[4:6]}/{short_base_date[6:8]} {short_base_time[:2]}:{short_base_time[2:]} 기준"
             update_text_width = draw.textlength(update_time_str, font=temp_font)
@@ -269,4 +269,5 @@ class WeatherService:
 if __name__ == '__main__':
     config = Config()
     weather_service = WeatherService(config)
+
     weather_service.create_dashboard_image()
