@@ -68,5 +68,5 @@ jobs:
     - name: Commit and push changes
       run: |
         git pull
-        git add.
+        git add .
         git diff-index --quiet HEAD || (git commit -m "Update sent links history" && git push)
