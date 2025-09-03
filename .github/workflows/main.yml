@@ -57,6 +57,7 @@ jobs:
         OPINET_API_KEY: ${{ secrets.OPINET_API_KEY }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
       run: python news_collector.py
 
     - name: Configure Git
