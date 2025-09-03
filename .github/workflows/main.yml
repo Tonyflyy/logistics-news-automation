@@ -67,5 +67,5 @@ jobs:
     - name: Commit and push changes
       run: |
         git pull
-        git add sent_links_logistics.txt
+        git add.
         git diff-index --quiet HEAD || (git commit -m "Update sent links history" && git push)
