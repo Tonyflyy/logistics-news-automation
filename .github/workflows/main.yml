@@ -22,6 +22,16 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip  # 캐시할 폴더 경로 (pip의 다운로드 폴더)
+        # requirements.txt 파일 내용이 바뀔 때만 캐시를 새로 만듦
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+        
+
     - name: Install dependencies
       run: |
         echo "--- Checking requirements.txt content ---"
