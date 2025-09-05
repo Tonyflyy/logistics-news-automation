@@ -1003,6 +1003,8 @@ def main_for_test():
         if price_chart_file: image_paths['price_chart'] = price_chart_file
         
         email_service.send_email(email_subject, email_body, image_paths)
+
+        update_archive_index()
         
         print("\n🎉 테스트 프로세스가 성공적으로 완료되었습니다.")
 
@@ -1013,3 +1015,4 @@ if __name__ == "__main__":
      #main()
      main_for_test()
      
+
