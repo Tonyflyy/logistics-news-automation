@@ -59,6 +59,11 @@ jobs:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
       run: python news_collector.py
+
+    - name: Check generated files
+      run: |
+        echo "--- Listing files in archive directory ---"
+        ls -R archive
     
     # 6. 변경된 파일들(기록, 아카이브)을 자동으로 저장소에 커밋
     - name: Commit and push updated files
@@ -66,7 +71,7 @@ jobs:
       with:
         commit_message: "chore: Update newsletter history and archive"
         # 저장할 파일들을 정확히 지정
-        file_pattern: "sent_links_logistics.txt previous_newsletter.json archive/*.html"
+        file_pattern: "sent_links_logistics.txt previous_newsletter.json archive"
       
 
     - name: Configure Git
