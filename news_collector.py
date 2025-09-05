@@ -61,6 +61,25 @@ def get_kst_today_str():
 def markdown_to_html(text):
     return markdown.markdown(text) if text else ""
 
+def render_html_template(template_name, context, target='email'):
+    """
+    Jinja2 템플릿을 렌더링합니다. target에 따라 이미지 경로를 다르게 설정합니다.
+    - target: 'email' 또는 'web'
+    """
+    env = Environment(loader=FileSystemLoader('.'))
+    template = env.get_template(template_name)
+
+    # 타겟에 따라 이미지 소스 경로를 동적으로 설정
+    if target == 'web':
+        # 웹페이지에서는 생성된 이미지 파일을 직접 참조
+        context['price_chart_src'] = '../price_chart.png'
+        context['weather_dashboard_src'] = '../weather_dashboard.png'
+    else: # 'email'
+        # 이메일에서는 첨부된 이미지의 Content-ID(cid)를 참조
+        context['price_chart_src'] = 'cid:price_chart'
+        context['weather_dashboard_src'] = 'cid:weather_dashboard'
+    
+    return template.render(context)
 
 def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
     """최근 7일간의 유가 데이터로 차트 이미지를 생성하고 파일 경로를 반환합니다."""
@@ -755,7 +774,7 @@ class EmailService:
             return None
 
 
-    def send_email(self, subject, body_html, image_paths={}):
+    def send_email(self, subject, body_html, images_to_embed=None):
         if not self.config.RECIPIENT_LIST:
             print("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
             return
@@ -776,13 +795,15 @@ class EmailService:
         msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
         msg.attach(msg_alternative)
 
-        # ✨ 개선: 딕셔너리를 순회하며 모든 이미지 첨부
-        for cid, path in image_paths.items():
-            if path and os.path.exists(path):
-                with open(path, 'rb') as f:
-                    msg_image = MIMEImage(f.read())
-                    msg_image.add_header('Content-ID', f'<{cid}>')
-                    msg.attach(msg_image)
+        if images_to_embed:
+            for image_info in images_to_embed:
+                image_path = image_info['path']
+                image_cid = image_info['cid']
+                if image_path and os.path.exists(image_path):
+                    with open(image_path, 'rb') as f:
+                        msg_image = MIMEImage(f.read())
+                        msg_image.add_header('Content-ID', f'<{image_cid}>')
+                        msg.attach(msg_image)
         
         try:
             server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -886,134 +907,123 @@ def main():
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
+        weather_service = WeatherService(config) # 날씨 서비스 추가
 
         os.makedirs('archive', exist_ok=True)
 
-
-        # --- 1. 날씨 대시보드 생성 ---
-        weather_service = WeatherService(config)
-        weather_dashboard_file = weather_service.create_dashboard_image()
-        if not weather_dashboard_file:
-            print("❌ 날씨 대시보드 이미지 생성에 실패했습니다.")
-
-        # --- 2. 유가 정보 및 차트 생성 ---
+        # --- 1. 데이터 및 이미지 생성 ---
         price_indicators = get_price_indicators(config)
+        weather_dashboard_file = weather_service.create_dashboard_image()
+        
         price_chart_file = None
         if price_indicators.get("seven_day_data"):
             price_chart_file = create_price_trend_chart(price_indicators["seven_day_data"])
 
-        # --- 3. 최신 뉴스 수집 및 선별 ---
+        # --- 2. 최신 뉴스 수집 및 선별 ---
         previous_top_news = load_newsletter_history()
         all_news = news_service.get_fresh_news()
         if not all_news:
-            print("ℹ️ 발송할 새로운 뉴스가 없습니다. 프로세스를 종료합니다.")
+            print("ℹ️ 발송할 새로운 뉴스가 없어 프로세스를 종료합니다.")
+            update_archive_index()
             return
 
         top_news = ai_service.select_top_news(all_news, previous_top_news)
         if not top_news:
-            print("ℹ️ AI가 뉴스를 선별하지 못했습니다. 프로세스를 종료합니다.")
+            print("ℹ️ AI가 뉴스를 선별하지 못했습니다.")
             return
         
-        
-
-        # --- 4. 이메일 본문 준비 ---
+        # --- 3. 템플릿용 데이터 준비 및 HTML 생성 ---
         ai_briefing_md = ai_service.generate_briefing(top_news)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
         today_str = get_kst_today_str()
         
-        email_body = email_service.create_email_body(
-            top_news, ai_briefing_html, today_str, price_indicators,
-            has_weather_dashboard=(weather_dashboard_file is not None)
-        )
+        context = {
+            "today_date": today_str, "ai_briefing": ai_briefing_html,
+            "price_indicators": price_indicators, "news_list": top_news,
+            "has_weather_dashboard": True if weather_dashboard_file else False
+        }
+        
+        web_html = render_html_template('email_template.html', context, target='web')
+        email_body = render_html_template('email_template.html', context, target='email')
 
         archive_filepath = f"archive/{today_str}.html"
         with open(archive_filepath, 'w', encoding='utf-8') as f:
-            f.write(email_body)
-        print(f"✅ 뉴스레터 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
+            f.write(web_html)
+        print(f"✅ 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
         
-        # --- 5. 이메일 발송 ---
-        email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_news)}"
+        # --- 4. 이메일 발송 ---
+        email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스"
+        images_to_embed = []
+        if price_chart_file: images_to_embed.append({'path': price_chart_file, 'cid': 'price_chart'})
+        if weather_dashboard_file: images_to_embed.append({'path': weather_dashboard_file, 'cid': 'weather_dashboard'})
         
-        image_paths = {}
-        if weather_dashboard_file: image_paths['weather_dashboard'] = weather_dashboard_file
-        if price_chart_file: image_paths['price_chart'] = price_chart_file
+        email_service.send_email(email_subject, email_body, images_to_embed)
         
-        email_service.send_email(email_subject, email_body, image_paths)
-        
-        # --- 6. 로그 및 히스토리 저장 ---
+        # --- 5. 로그 및 히스토리 저장 ---
         news_service.update_sent_links_log(top_news)
         save_newsletter_history(top_news)
-
-        print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
-
         update_archive_index()
 
-    except Exception as e:
-        print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+        print("🎉 모든 프로세스가 성공적으로 완료되었습니다.")
 
+    except Exception as e:
+        print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}", exc_info=True)
 
 def main_for_test():
     """뉴스 수집을 건너뛰고 날씨/유가 정보만으로 이메일을 생성하는 테스트용 함수"""
-    print("🚀 뉴스레터 테스트 프로세스를 시작합니다 (뉴스 수집 건너뛰기).")
+    print("🚀 뉴스레터 기능 테스트를 시작합니다 (날씨 + 데이터 지표).")
     try:
         config = Config()
         email_service = EmailService(config)
+        weather_service = WeatherService(config)
 
         os.makedirs('archive', exist_ok=True)
 
-
-
-        # --- 1. 날씨 대시보드 생성 ---
-        print("\n--- ☀️ 날씨 대시보드 생성 시작 ---")
-        # weather_service.py가 필요합니다.
-        from weather_service import WeatherService
-        weather_service = WeatherService(config)
-        weather_dashboard_file = weather_service.create_dashboard_image()
-        if not weather_dashboard_file:
-            print("❌ 날씨 대시보드 이미지 생성에 실패했습니다.")
-
-        # --- 2. 유가 정보 및 차트 생성 ---
+        # --- 1. 데이터 및 이미지 생성 ---
         price_indicators = get_price_indicators(config)
+        weather_dashboard_file = weather_service.create_dashboard_image()
+
         price_chart_file = None
         if price_indicators.get("seven_day_data"):
             price_chart_file = create_price_trend_chart(price_indicators["seven_day_data"])
 
-        # --- 3. [생략] 최신 뉴스 수집 및 선별 ---
-        # 뉴스 관련 객체들은 비어있는 상태로 전달
+        # --- 2. 뉴스/AI 관련 부분은 테스트용 빈 데이터로 설정 ---
         top_news = []
-        ai_briefing_html = "<h1>[테스트 모드]</h1><p>뉴스 수집 및 AI 브리핑 생성을 건너뛰었습니다.</p>"
+        ai_briefing_html = "<i>(AI 브리핑 및 뉴스 목록은 테스트에서 생략됩니다.)</i>"
         
-        # --- 4. 이메일 본문 준비 ---
+        # --- 3. 템플릿용 데이터 준비 및 HTML 생성 ---
         today_str = get_kst_today_str()
-        email_body = email_service.create_email_body(
-            top_news, ai_briefing_html, today_str, price_indicators,
-            has_weather_dashboard=(weather_dashboard_file is not None)
-        )
+        context = {
+            "today_date": today_str, "ai_briefing": ai_briefing_html,
+            "price_indicators": price_indicators, "news_list": top_news,
+            "has_weather_dashboard": True if weather_dashboard_file else False
+        }
+
+        web_html = render_html_template('email_template.html', context, target='web')
+        email_body = render_html_template('email_template.html', context, target='email')
 
         archive_filepath = f"archive/{today_str}.html"
         with open(archive_filepath, 'w', encoding='utf-8') as f:
-            f.write(email_body)
-        print(f"✅ 뉴스레터 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
+            f.write(web_html)
+        print(f"✅ 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
         
-        # --- 5. 이메일 발송 ---
-        email_subject = f"[{today_str}] YLP 뉴스레터 (테스트 발송)"
-        
-        image_paths = {}
-        if weather_dashboard_file: image_paths['weather_dashboard'] = weather_dashboard_file
-        if price_chart_file: image_paths['price_chart'] = price_chart_file
-        
-        email_service.send_email(email_subject, email_body, image_paths)
+        # --- 4. 이메일 발송 ---
+        email_subject = f"[{today_str}] 📊 데이터 기능 테스트"
+        images_to_embed = []
+        if price_chart_file: images_to_embed.append({'path': price_chart_file, 'cid': 'price_chart'})
+        if weather_dashboard_file: images_to_embed.append({'path': weather_dashboard_file, 'cid': 'weather_dashboard'})
 
+        email_service.send_email(email_subject, email_body, images_to_embed)
+        
         update_archive_index()
         
-        print("\n🎉 테스트 프로세스가 성공적으로 완료되었습니다.")
+        print("\n🎉 테스트 이메일 발송이 성공적으로 완료되었습니다.")
 
     except Exception as e:
-        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}", exc_info=True)
 
 if __name__ == "__main__":
      main()
      #main_for_test()
      
-
 
