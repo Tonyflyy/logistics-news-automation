@@ -822,6 +822,62 @@ def save_newsletter_history(news_list, filepath='previous_newsletter.json'):
     except Exception as e:
         print(f"❌ 뉴스레터 내용 저장 실패: {e}")
 
+def update_archive_index():
+    """archive 폴더의 html 파일 목록을 읽어 index.html을 생성/업데이트합니다."""
+    print("-> 아카이브 인덱스 페이지를 업데이트합니다...")
+    try:
+        archive_dir = 'archive'
+        html_files = sorted(
+            [f for f in os.listdir(archive_dir) if f.endswith('.html') and f != 'index.html'],
+            reverse=True # 최신 날짜가 위로 오도록 역순 정렬
+        )
+
+        # HTML 페이지 기본 구조
+        html_content = """
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>지난 뉴스레터 목록</title>
+            <style>
+                body { font-family: sans-serif; margin: 40px; background-color: #f6f8fa; }
+                .container { max-width: 600px; margin: 0 auto; background-color: #fff; border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px 40px; }
+                h1 { text-align: center; }
+                ul { list-style: none; padding: 0; }
+                li { margin: 15px 0; }
+                a { text-decoration: none; font-size: 1.1em; color: #0366d6; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>지난 뉴스레터 목록</h1>
+                <ul>
+        """
+
+        # 파일 목록으로 링크 생성
+        for filename in html_files:
+            date_str = filename.replace('.html', '')
+            html_content += f'            <li><a href="{filename}">{date_str} 뉴스레터</a></li>\n'
+
+        # HTML 페이지 마무리
+        html_content += """
+                </ul>
+            </div>
+        </body>
+        </html>
+        """
+
+        # index.html 파일 쓰기
+        with open(os.path.join(archive_dir, 'index.html'), 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        print("✅ 아카이브 인덱스 페이지 업데이트 완료.")
+
+    except Exception as e:
+        print(f"❌ 아카이브 인덱스 페이지 업데이트 실패: {e}")
+
 def main():
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
     try:
@@ -830,6 +886,9 @@ def main():
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
+
+        os.makedirs('archive', exist_ok=True)
+
 
         # --- 1. 날씨 대시보드 생성 ---
         weather_service = WeatherService(config)
@@ -854,6 +913,8 @@ def main():
         if not top_news:
             print("ℹ️ AI가 뉴스를 선별하지 못했습니다. 프로세스를 종료합니다.")
             return
+        
+        
 
         # --- 4. 이메일 본문 준비 ---
         ai_briefing_md = ai_service.generate_briefing(top_news)
@@ -864,6 +925,11 @@ def main():
             top_news, ai_briefing_html, today_str, price_indicators,
             has_weather_dashboard=(weather_dashboard_file is not None)
         )
+
+        archive_filepath = f"archive/{today_str}.html"
+        with open(archive_filepath, 'w', encoding='utf-8') as f:
+            f.write(email_body)
+        print(f"✅ 뉴스레터 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
         
         # --- 5. 이메일 발송 ---
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스 Top {len(top_news)}"
@@ -880,6 +946,8 @@ def main():
 
         print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
 
+        update_archive_index()
+
     except Exception as e:
         print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
@@ -890,6 +958,10 @@ def main_for_test():
     try:
         config = Config()
         email_service = EmailService(config)
+
+        os.makedirs('archive', exist_ok=True)
+
+
 
         # --- 1. 날씨 대시보드 생성 ---
         print("\n--- ☀️ 날씨 대시보드 생성 시작 ---")
@@ -917,6 +989,11 @@ def main_for_test():
             top_news, ai_briefing_html, today_str, price_indicators,
             has_weather_dashboard=(weather_dashboard_file is not None)
         )
+
+        archive_filepath = f"archive/{today_str}.html"
+        with open(archive_filepath, 'w', encoding='utf-8') as f:
+            f.write(email_body)
+        print(f"✅ 뉴스레터 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
         
         # --- 5. 이메일 발송 ---
         email_subject = f"[{today_str}] YLP 뉴스레터 (테스트 발송)"
@@ -933,8 +1010,6 @@ def main_for_test():
         print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 if __name__ == "__main__":
-    main()
-    #main_for_test()
+     #main()
+     main_for_test()
      
-
-
