@@ -13,5 +13,10 @@ service-account-key.json
 # VSCode settings
 .vscode/
 
-# Generated files
+# Generated image files
+# images 폴더 안의 모든 파일을 무시하도록 변경
+images/
+
+# 이전 방식의 임시 파일 (선택사항이지만 남겨두면 좋음)
 price_chart.png
+weather_dashboard.png
