@@ -9,6 +9,7 @@ import json
 import time
 import random
 from weather_service import WeatherService 
+from utils import get_kst_today_str, markdown_to_html, image_to_base64_string
 import logging
 from datetime import datetime, timezone, timedelta, date
 from email.mime.text import MIMEText
@@ -54,76 +55,74 @@ import openai
 
 from config import Config
 
-# --- 유틸리티 함수 ---
-def get_kst_today_str():
-    return datetime.now(ZoneInfo('Asia/Seoul')).strftime("%Y-%m-%d")
 
-def markdown_to_html(text):
-    return markdown.markdown(text) if text else ""
-
-def render_html_template(template_name, context, target='email'):
-    """
-    Jinja2 템플릿을 렌더링합니다. target에 따라 이미지 경로를 다르게 설정합니다.
-    - target: 'email' 또는 'web'
-    """
+def render_html_template(context, target='email'):
+    """Jinja2 템플릿을 렌더링합니다. target에 따라 이미지 경로를 다르게 설정합니다."""
     env = Environment(loader=FileSystemLoader('.'))
-    template = env.get_template(template_name)
+    template = env.get_template('email_template.html')
+    
+    # context에서 Base64 데이터 추출
+    price_chart_b64 = context.get("price_indicators", {}).get("price_chart_b64")
+    weather_dashboard_b64 = context.get("weather_dashboard_b64")
 
-    # 타겟에 따라 이미지 소스 경로를 동적으로 설정
     if target == 'web':
-        # 웹페이지에서는 생성된 이미지 파일을 직접 참조
-        context['price_chart_src'] = '../price_chart.png'
-        context['weather_dashboard_src'] = '../weather_dashboard.png'
+        # 웹페이지에서는 Base64 데이터 URI를 사용
+        if price_chart_b64:
+            context['price_chart_src'] = f"data:image/png;base64,{price_chart_b64}"
+        if weather_dashboard_b64:
+            context['weather_dashboard_src'] = f"data:image/png;base64,{weather_dashboard_b64}"
     else: # 'email'
-        # 이메일에서는 첨부된 이미지의 Content-ID(cid)를 참조
         context['price_chart_src'] = 'cid:price_chart'
         context['weather_dashboard_src'] = 'cid:weather_dashboard'
     
     return template.render(context)
 
-def create_price_trend_chart(seven_day_data, filename="price_chart.png"):
-    """최근 7일간의 유가 데이터로 차트 이미지를 생성하고 파일 경로를 반환합니다."""
+def create_price_trend_chart(seven_day_data, today_str):
+    """최근 7일 유가 데이터로 차트 이미지를 생성하고, 파일 경로와 Base64 문자열을 딕셔너리로 반환합니다."""
+    filename = f"images/price_chart_{today_str}.png"
     try:
-        # --- 👇 운영체제에 따라 자동으로 한글 폰트를 설정하도록 변경 ---
+        # --- (차트를 그리는 로직은 동일합니다) ---
         system_name = platform.system()
         if system_name == 'Windows':
             plt.rc('font', family='Malgun Gothic')
-        elif system_name == 'Darwin': # Mac OS
+        elif system_name == 'Darwin':
             plt.rc('font', family='AppleGothic')
-        else: # Linux (GitHub Actions 등)
-            # Nanum 폰트가 설치되어 있다고 가정
+        else:
             if os.path.exists('/usr/share/fonts/truetype/nanum/NanumGothic.ttf'):
                 plt.rc('font', family='NanumGothic')
             else:
                 print("⚠️ NanumGothic 폰트가 없어 기본 폰트로 출력됩니다 (한글 깨짐 가능성).")
-
         plt.rcParams['axes.unicode_minus'] = False
-        # --- 👆 여기까지 변경 ---
 
-        # 데이터 분리 및 차트 생성 (이하 로직은 동일)
         dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
         gasoline_prices = [float(p['PRICE']) for p in seven_day_data['gasoline']]
         diesel_prices = [float(p['PRICE']) for p in seven_day_data['diesel']]
-
+        
         fig, ax = plt.subplots(figsize=(7, 4))
         ax.plot(dates, gasoline_prices, 'o-', label='휘발유', color='#3498db')
         ax.plot(dates, diesel_prices, 'o-', label='경유', color='#e74c3c')
-
+        
         ax.set_title("최근 7일 휘발유·경유 가격 추이", fontsize=15, pad=20)
         ax.legend()
         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-
+        
         formatter = FuncFormatter(lambda y, _: f'{int(y):,}원')
         ax.yaxis.set_major_formatter(formatter)
-
+        
         ax.tick_params(axis='x', rotation=0)
         fig.tight_layout()
-
+        
+        # 1. 이미지 파일로 저장
         plt.savefig(filename, dpi=150)
         plt.close(fig)
-
         print(f"✅ 유가 추이 차트 이미지 '{filename}'를 생성했습니다.")
-        return filename
+        
+        # 2. Base64 문자열로 변환
+        base64_image = image_to_base64_string(filename)
+        
+        # 3. 딕셔너리 형태로 반환
+        return {"filepath": filename, "base64": base64_image}
+
     except Exception as e:
         print(f"❌ 차트 이미지 생성 실패: {e}")
         return None
@@ -899,6 +898,16 @@ def update_archive_index():
     except Exception as e:
         print(f"❌ 아카이브 인덱스 페이지 업데이트 실패: {e}")
 
+def image_to_base64_string(filepath):
+    """이미지 파일 경로를 받아 Base64 텍스트 문자열로 변환합니다."""
+    try:
+        with open(filepath, 'rb') as image_file:
+            encoded_bytes = base64.b64encode(image_file.read())
+            return encoded_bytes.decode('utf-8')
+    except Exception as e:
+        print(f"❌ 이미지를 Base64로 변환하는 중 오류 발생: {e}")
+        return None
+
 def main():
     print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
     try:
@@ -907,17 +916,19 @@ def main():
         ai_service = AIService(config)
         news_service = NewsService(config, news_scraper, ai_service)
         email_service = EmailService(config)
-        weather_service = WeatherService(config) # 날씨 서비스 추가
+        weather_service = WeatherService(config)
 
         os.makedirs('archive', exist_ok=True)
+        os.makedirs('images', exist_ok=True)
+        today_str = get_kst_today_str()
 
         # --- 1. 데이터 및 이미지 생성 ---
         price_indicators = get_price_indicators(config)
-        weather_dashboard_file = weather_service.create_dashboard_image()
+        weather_result = weather_service.create_dashboard_image(today_str)
         
-        price_chart_file = None
+        price_chart_result = None
         if price_indicators.get("seven_day_data"):
-            price_chart_file = create_price_trend_chart(price_indicators["seven_day_data"])
+            price_chart_result = create_price_trend_chart(price_indicators["seven_day_data"], today_str)
 
         # --- 2. 최신 뉴스 수집 및 선별 ---
         previous_top_news = load_newsletter_history()
@@ -935,16 +946,21 @@ def main():
         # --- 3. 템플릿용 데이터 준비 및 HTML 생성 ---
         ai_briefing_md = ai_service.generate_briefing(top_news)
         ai_briefing_html = markdown_to_html(ai_briefing_md)
-        today_str = get_kst_today_str()
+        
+        if price_chart_result:
+            price_indicators['price_chart_b64'] = price_chart_result['base64']
+        
+        weather_dashboard_b64 = weather_result['base64'] if weather_result else None
         
         context = {
             "today_date": today_str, "ai_briefing": ai_briefing_html,
             "price_indicators": price_indicators, "news_list": top_news,
-            "has_weather_dashboard": True if weather_dashboard_file else False
+            "weather_dashboard_b64": weather_dashboard_b64,
+            "has_weather_dashboard": True if weather_dashboard_b64 else False
         }
         
-        web_html = render_html_template('email_template.html', context, target='web')
-        email_body = render_html_template('email_template.html', context, target='email')
+        web_html = render_html_template(context, target='web')
+        email_body = render_html_template(context, target='email')
 
         archive_filepath = f"archive/{today_str}.html"
         with open(archive_filepath, 'w', encoding='utf-8') as f:
@@ -954,8 +970,10 @@ def main():
         # --- 4. 이메일 발송 ---
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스"
         images_to_embed = []
-        if price_chart_file: images_to_embed.append({'path': price_chart_file, 'cid': 'price_chart'})
-        if weather_dashboard_file: images_to_embed.append({'path': weather_dashboard_file, 'cid': 'weather_dashboard'})
+        if price_chart_result and price_chart_result.get('filepath'):
+            images_to_embed.append({'path': price_chart_result['filepath'], 'cid': 'price_chart'})
+        if weather_result and weather_result.get('filepath'):
+            images_to_embed.append({'path': weather_result['filepath'], 'cid': 'weather_dashboard'})
         
         email_service.send_email(email_subject, email_body, images_to_embed)
         
@@ -964,13 +982,13 @@ def main():
         save_newsletter_history(top_news)
         update_archive_index()
 
-        print("🎉 모든 프로세스가 성공적으로 완료되었습니다.")
+        print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
 
     except Exception as e:
-        print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}", exc_info=True)
+        print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 def main_for_test():
-    """뉴스 수집을 건너뛰고 날씨/유가 정보만으로 이메일을 생성하는 테스트용 함수"""
+    """뉴스 수집을 건너뛰고 날씨/데이터 지표 기능만 테스트하는 함수"""
     print("🚀 뉴스레터 기능 테스트를 시작합니다 (날씨 + 데이터 지표).")
     try:
         config = Config()
@@ -978,40 +996,50 @@ def main_for_test():
         weather_service = WeatherService(config)
 
         os.makedirs('archive', exist_ok=True)
+        os.makedirs('images', exist_ok=True)
+        today_str = get_kst_today_str()
 
         # --- 1. 데이터 및 이미지 생성 ---
         price_indicators = get_price_indicators(config)
-        weather_dashboard_file = weather_service.create_dashboard_image()
-
-        price_chart_file = None
+        weather_result = weather_service.create_dashboard_image(today_str)
+        
+        price_chart_result = None
         if price_indicators.get("seven_day_data"):
-            price_chart_file = create_price_trend_chart(price_indicators["seven_day_data"])
+            price_chart_result = create_price_trend_chart(price_indicators["seven_day_data"], today_str)
 
         # --- 2. 뉴스/AI 관련 부분은 테스트용 빈 데이터로 설정 ---
         top_news = []
         ai_briefing_html = "<i>(AI 브리핑 및 뉴스 목록은 테스트에서 생략됩니다.)</i>"
         
-        # --- 3. 템플릿용 데이터 준비 및 HTML 생성 ---
-        today_str = get_kst_today_str()
+        # --- 3. 템플릿용 데이터 준비 ---
+        if price_chart_result:
+            price_indicators['price_chart_b64'] = price_chart_result['base64']
+        
+        weather_dashboard_b64 = weather_result['base64'] if weather_result else None
+        
         context = {
             "today_date": today_str, "ai_briefing": ai_briefing_html,
             "price_indicators": price_indicators, "news_list": top_news,
-            "has_weather_dashboard": True if weather_dashboard_file else False
+            "weather_dashboard_b64": weather_dashboard_b64,
+            "has_weather_dashboard": True if weather_dashboard_b64 else False
         }
-
-        web_html = render_html_template('email_template.html', context, target='web')
-        email_body = render_html_template('email_template.html', context, target='email')
-
+        
+        # --- 4. 웹/이메일용 HTML 생성 및 저장 ---
+        web_html = render_html_template(context, target='web')
+        email_body = render_html_template(context, target='email')
+        
         archive_filepath = f"archive/{today_str}.html"
         with open(archive_filepath, 'w', encoding='utf-8') as f:
             f.write(web_html)
         print(f"✅ 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
         
-        # --- 4. 이메일 발송 ---
+        # --- 5. 이메일 발송 ---
         email_subject = f"[{today_str}] 📊 데이터 기능 테스트"
         images_to_embed = []
-        if price_chart_file: images_to_embed.append({'path': price_chart_file, 'cid': 'price_chart'})
-        if weather_dashboard_file: images_to_embed.append({'path': weather_dashboard_file, 'cid': 'weather_dashboard'})
+        if price_chart_result and price_chart_result.get('filepath'):
+            images_to_embed.append({'path': price_chart_result['filepath'], 'cid': 'price_chart'})
+        if weather_result and weather_result.get('filepath'):
+            images_to_embed.append({'path': weather_result['filepath'], 'cid': 'weather_dashboard'})
 
         email_service.send_email(email_subject, email_body, images_to_embed)
         
@@ -1020,7 +1048,7 @@ def main_for_test():
         print("\n🎉 테스트 이메일 발송이 성공적으로 완료되었습니다.")
 
     except Exception as e:
-        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}", exc_info=True)
+        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 if __name__ == "__main__":
      main()
