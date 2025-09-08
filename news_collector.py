@@ -272,6 +272,12 @@ class NewsScraper:
         session.mount('http://', adapter)
         session.mount('https://', adapter)
         return session
+    
+    def _transform_thumbnail_url(self, url: str) -> str:
+        """썸네일 URL을 원본 URL로 변형 시도 (예: _v150.jpg 제거)"""
+        # 정규표현식을 사용하여 URL 끝에 있는 '_v숫자', '_w숫자', '_s숫자' 등의 썸네일 패턴을 제거
+        transformed_url = re.sub(r'(_[vws]\d+)\.(jpg|jpeg|png|gif)$', r'.\2', url, flags=re.IGNORECASE)
+        return transformed_url
 
     def get_image_url(self, article_url: str) -> str:
         try:
@@ -280,23 +286,26 @@ class NewsScraper:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
             
-            # 1. 메타 태그 (가장 신뢰도 높음)
+            # ✨ 1순위: 메타 태그 (썸네일 주소 변형 시도 포함)
             meta_image = soup.find("meta", property="og:image") or soup.find("meta", name="twitter:image")
             if meta_image and meta_image.get("content"):
-                meta_url = self._resolve_url(article_url, meta_image["content"])
-                if self._is_valid_candidate(meta_url) and self._validate_image(meta_url):
-                    return meta_url
+                thumbnail_url = meta_image["content"]
+                # 썸네일 주소를 원본 주소로 변형 시도
+                original_url_candidate = self._transform_thumbnail_url(thumbnail_url)
+                
+                # 변형된 URL부터 유효성 검사
+                full_url = self._resolve_url(article_url, original_url_candidate)
+                if self._is_valid_candidate(full_url) and self._validate_image(full_url):
+                    return full_url
+                
+                # 변형된 URL이 실패하면 원본 썸네일 URL도 검사
+                full_thumbnail_url = self._resolve_url(article_url, thumbnail_url)
+                if full_thumbnail_url != full_url: # 중복 검사 방지
+                    if self._is_valid_candidate(full_thumbnail_url) and self._validate_image(full_thumbnail_url):
+                        return full_thumbnail_url
 
-            # 2. 본문 <figure> 또는 <picture> 태그
-            for tag in soup.select('figure > img, picture > img', limit=5):
-                img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
-                if img_url and self._is_valid_candidate(img_url):
-                    full_url = self._resolve_url(article_url, img_url)
-                    if self._validate_image(full_url):
-                        return full_url
-            
-            # 2.5. 기사 본문 영역(entry-content, article-body 등)을 특정하여 이미지 검색
-            content_area = soup.select_one('.entry-content, .article-body, #article-view-content')
+            # ✨ 2순위: 특정 기사 본문 영역을 먼저 찾아서 그 안에서만 이미지 검색
+            content_area = soup.select_one('#article-view-content-div, .entry-content, .article-body, #article-view-content')
             if content_area:
                 for img in content_area.find_all("img", limit=5):
                     img_url = img.get("src") or img.get("data-src")
@@ -304,9 +313,16 @@ class NewsScraper:
                         full_url = self._resolve_url(article_url, img_url)
                         if self._validate_image(full_url):
                             return full_url
-            # --- ⬆️⬆️⬆️ 수정 완료 ⬆️⬆️⬆️
             
-            # 3. 일반 <img> 태그 (최후의 수단)
+            # 3순위: 본문 <figure> 또는 <picture> 태그
+            for tag in soup.select('figure > img, picture > img', limit=5):
+                img_url = tag.get('src') or tag.get('data-src') or (tag.get('srcset').split(',')[0].strip().split(' ')[0] if tag.get('srcset') else None)
+                if img_url and self._is_valid_candidate(img_url):
+                    full_url = self._resolve_url(article_url, img_url)
+                    if self._validate_image(full_url):
+                        return full_url
+            
+            # 4순위: 일반 <img> 태그 (최후의 수단)
             for img in soup.find_all("img", limit=10):
                 img_url = img.get("src") or img.get("data-src")
                 if img_url and self._is_valid_candidate(img_url):
@@ -600,11 +616,45 @@ class NewsService:
                 print(f"  ㄴ> ⚠️ AI 요약 생성 실패, 기사 제외")
                 return None
             
+            # 이미지 URL 찾기
+            image_url = self.scraper.get_image_url(url)
+            image_data = None
+
+            # --- ✨ 이미지 다운로드 및 리사이징 로직 시작 ✨ ---
+            if image_url and image_url != self.config.DEFAULT_IMAGE_URL:
+                try:
+                    # 1. 이미지 데이터 다운로드
+                    img_response = self.scraper.session.get(image_url, timeout=10)
+                    img_response.raise_for_status()
+                    
+                    # 2. Pillow로 이미지 열기
+                    img = Image.open(BytesIO(img_response.content))
+                    
+                    # 3. 이미지 리사이징 (가로 640px 기준으로 비율 유지)
+                    target_width = 640
+                    if img.width > target_width:
+                        width_percent = (target_width / float(img.size[0]))
+                        hsize = int((float(img.size[1]) * float(width_percent)))
+                        img = img.resize((target_width, hsize), Image.Resampling.LANCZOS)
+
+                    # 4. 메모리 버퍼에 JPEG 형식으로 저장 (투명 배경 처리 포함)
+                    buffer = BytesIO()
+                    if img.mode in ("RGBA", "P"):
+                        img = img.convert("RGB")
+                    img.save(buffer, format='JPEG', quality=85)
+                    image_data = buffer.getvalue()
+                    
+                except Exception as e:
+                    print(f"  ㄴ> ⚠️ 이미지 처리 실패: {e.__class__.__name__}, 이미지는 제외하고 진행")
+                    image_data = None
+            # --- ✨ 이미지 다운로드 및 리사이징 로직 종료 ✨ ---
+
+            
             return {
                 'title': title,
-                'link': url, 'url': url,
+                'link': url,
                 'ai_summary': ai_summary,
-                'image_url': self.scraper.get_image_url(url)
+                'image_data': image_data  # URL 대신 이미지 바이너리 데이터 반환
             }
         except Exception as e:
             print(f"  ㄴ> ❌ 콘텐츠 처리 중 오류: '{title}' ({e.__class__.__name__})")
@@ -794,15 +844,24 @@ class EmailService:
         msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
         msg.attach(msg_alternative)
 
+        # --- ✨ 이미지 첨부 로직 수정 ✨ ---
         if images_to_embed:
             for image_info in images_to_embed:
-                image_path = image_info['path']
                 image_cid = image_info['cid']
-                if image_path and os.path.exists(image_path):
-                    with open(image_path, 'rb') as f:
+                msg_image = None
+                
+                # 파일 경로로 이미지를 첨부하는 경우 (차트, 날씨)
+                if 'path' in image_info and os.path.exists(image_info['path']):
+                    with open(image_info['path'], 'rb') as f:
                         msg_image = MIMEImage(f.read())
-                        msg_image.add_header('Content-ID', f'<{image_cid}>')
-                        msg.attach(msg_image)
+                # 이미지 데이터로 직접 첨부하는 경우 (뉴스 기사)
+                elif 'data' in image_info and image_info['data']:
+                    msg_image = MIMEImage(image_info['data'])
+                
+                if msg_image:
+                    msg_image.add_header('Content-ID', f'<{image_cid}>')
+                    msg.attach(msg_image)
+        # --- ✨ 이미지 첨부 로직 수정 완료 ✨ ---
         
         try:
             server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -835,10 +894,15 @@ def load_newsletter_history(filepath='previous_newsletter.json'):
 
 def save_newsletter_history(news_list, filepath='previous_newsletter.json'):
     """발송 완료된 뉴스레터 내용을 다음 실행을 위해 JSON 파일로 저장합니다."""
+    # 이미지 데이터는 저장할 필요 없으므로 제외하고 저장
+    history_to_save = [
+        {k: v for k, v in news.items() if k != 'image_data'} 
+        for news in news_list
+    ]
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(news_list, f, ensure_ascii=False, indent=4)
-        print(f"✅ 이번 뉴스레터 내용({len(news_list)}개)을 다음 실행을 위해 저장했습니다.")
+            json.dump(history_to_save, f, ensure_ascii=False, indent=4)
+        print(f"✅ 이번 뉴스레터 내용({len(history_to_save)}개)을 다음 실행을 위해 저장했습니다.")
     except Exception as e:
         print(f"❌ 뉴스레터 내용 저장 실패: {e}")
 
@@ -952,28 +1016,50 @@ def main():
         
         weather_dashboard_b64 = weather_result['base64'] if weather_result else None
         
+        # ✨ 웹페이지용 데이터 준비: 뉴스 이미지 데이터를 Base64로 변환 ✨
+        web_news_list = []
+        for news in top_news:
+            news_copy = news.copy()
+            if news_copy.get('image_data'):
+                b64_img = base64.b64encode(news_copy['image_data']).decode('utf-8')
+                news_copy['image_src'] = f"data:image/jpeg;base64,{b64_img}"
+            web_news_list.append(news_copy)
+
         context = {
             "today_date": today_str, "ai_briefing": ai_briefing_html,
-            "price_indicators": price_indicators, "news_list": top_news,
+            "price_indicators": price_indicators, "news_list": web_news_list, # 웹용 데이터 사용
             "weather_dashboard_b64": weather_dashboard_b64,
             "has_weather_dashboard": True if weather_dashboard_b64 else False
         }
         
         web_html = render_html_template(context, target='web')
-        email_body = render_html_template(context, target='email')
-
         archive_filepath = f"archive/{today_str}.html"
         with open(archive_filepath, 'w', encoding='utf-8') as f:
             f.write(web_html)
         print(f"✅ 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
+
+        # --- 4. 이메일 발송 준비 ---
         
-        # --- 4. 이메일 발송 ---
+        # ✨ (순서 변경) 이메일 본문 생성 전, 뉴스 객체에 image_cid를 먼저 할당 ✨
+        for i, news_item in enumerate(top_news):
+            if news_item.get('image_data'):
+                news_item['image_cid'] = f'news_image_{i}'
+        
+        context['news_list'] = top_news # 이메일용 데이터로 교체
+        email_body = render_html_template(context, target='email') # <- ID 부여 후 본문 생성
+
         email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스"
+        
         images_to_embed = []
         if price_chart_result and price_chart_result.get('filepath'):
             images_to_embed.append({'path': price_chart_result['filepath'], 'cid': 'price_chart'})
         if weather_result and weather_result.get('filepath'):
             images_to_embed.append({'path': weather_result['filepath'], 'cid': 'weather_dashboard'})
+        
+        # 뉴스 이미지 데이터를 첨부 목록에 추가
+        for news_item in top_news:
+            if news_item.get('image_data') and news_item.get('image_cid'):
+                images_to_embed.append({'data': news_item['image_data'], 'cid': news_item['image_cid']})
         
         email_service.send_email(email_subject, email_body, images_to_embed)
         
@@ -985,6 +1071,8 @@ def main():
         print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 def main_for_test():
@@ -1054,4 +1142,3 @@ if __name__ == "__main__":
      main()
      #main_for_test()
      
-
