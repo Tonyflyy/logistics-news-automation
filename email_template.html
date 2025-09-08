@@ -1,48 +1,57 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>오늘의 화물/물류 뉴스</title>
 </head>
-<body style="font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; margin: 0; padding: 0; background-color: #f6f8fa;">
 
-    <div style="width: 100%; max-width: 720px; margin: 20px auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 6px;">
+<body
+    style="font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; margin: 0; padding: 0; background-color: #f6f8fa;">
+
+    <div
+        style="width: 100%; max-width: 720px; margin: 20px auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 6px;">
 
         <div style="width: 100%;">
             <img src="https://images.pexels.com/photos/18446790/pexels-photo-18446790.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
-                 alt="화물 운송 트럭 배너"
-                 style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
+                alt="화물 운송 트럭 배너"
+                style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
         </div>
 
         <div style="padding: 24px; text-align: center; border-bottom: 1px solid #e1e4e8;">
             <h1 style="margin: 0; font-size: 24px; color: #24292e;">오늘의 화물/물류 뉴스</h1>
             <p style="margin: 5px 0 0; color: #586069;">{{ today_date }}</p>
         </div>
-        
+
         {% if has_weather_dashboard %}
         <div style="padding: 24px 0; border-bottom: 1px solid #e1e4e8;">
-             <img src="{{ weather_dashboard_src }}" style="width:100%; max-width:1000px; height:auto;" alt="주간 운송 날씨 리스크">
+            <img src="{{ weather_dashboard_src }}" style="width:100%; max-width:1000px; height:auto;"
+                alt="주간 운송 날씨 리스크">
         </div>
         {% endif %}
 
         {% if ai_briefing %}
         <div style="padding: 24px; border-bottom: 1px solid #e1e4e8; background-color: #f6f8fa;">
-            <h2 style="margin-top: 0; font-size: 18px; color: #24292e; padding-bottom: 10px; border-bottom: 2px solid #0366d6;">AI 에디터 브리핑 🤖</h2>
+            <h2
+                style="margin-top: 0; font-size: 18px; color: #24292e; padding-bottom: 10px; border-bottom: 2px solid #0366d6;">
+                AI 에디터 브리핑 🤖</h2>
             <div style="color: #444c56; line-height: 1.7; font-size: 14px;">
                 {{ ai_briefing | safe }}
             </div>
         </div>
         {% endif %}
-        
+
         {% if price_indicators and price_indicators.city_prices %}
         <div style="padding: 24px; border-bottom: 1px solid #e1e4e8;">
             <div style="background-color: #f7f7f7; padding: 15px; border-radius: 8px;">
                 <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #333; text-align: center;">📈 오늘의 운송 주요 지표</h3>
-                <p style="text-align: right; font-size: 11px; color: #888; margin: -5px 0 10px 0;">({{ price_indicators.timestamp }})</p>
-                
+                <p style="text-align: right; font-size: 11px; color: #888; margin: -5px 0 10px 0;">({{
+                    price_indicators.timestamp }})</p>
+
                 <div style="margin-bottom: 15px;">
-                    <img src="{{ price_chart_src }}" alt="최근 7일 유가 추이" style="max-width: 100%; height: auto; border-radius: 6px; display: block;">
+                    <img src="{{ price_chart_src }}" alt="최근 7일 유가 추이"
+                        style="max-width: 100%; height: auto; border-radius: 6px; display: block;">
                 </div>
 
                 {% if price_indicators.city_prices %}
@@ -69,18 +78,22 @@
                 {% endif %}
 
                 {% if price_indicators.trend_comment %}
-                <p style="margin: 10px 0 0 0; font-size: 12px; color: #586069; text-align: center; border-top: 1px solid #eee; padding-top: 10px;">
+                <p
+                    style="margin: 10px 0 0 0; font-size: 12px; color: #586069; text-align: center; border-top: 1px solid #eee; padding-top: 10px;">
                     {{ price_indicators.trend_comment }}
                 </p>
                 {% endif %}
 
                 {% if price_indicators.cheapest_stations %}
                 <div style="border-top: 1px solid #ddd; margin-top: 10px; padding-top: 10px; text-align: center;">
-                    <strong style="font-size: 14px; color: #555; display: block; margin-bottom: 8px;">💸 전국 최저가 경유 주유소 TOP 20</strong>
-                    <ol style="list-style-position: inside; padding: 0; margin: 0; font-size: 13px; color: #555; text-align: center;">
+                    <strong style="font-size: 14px; color: #555; display: block; margin-bottom: 8px;">💸 전국 최저가 경유 주유소
+                        TOP 20</strong>
+                    <ol
+                        style="list-style-position: inside; padding: 0; margin: 0; font-size: 13px; color: #555; text-align: center;">
                         {% for station in price_indicators.cheapest_stations %}
                         <li style="padding: 2px 0;">
-                            {{ station.location }} <strong style="color: #333;">{{ station.name }}</strong> ({{ station.price }})
+                            {{ station.location }} <strong style="color: #333;">{{ station.name }}</strong> ({{
+                            station.price }})
                         </li>
                         {% endfor %}
                     </ol>
@@ -92,25 +105,39 @@
 
         <div style="padding: 24px;">
             {% for news in news_list %}
-            <div style="margin-bottom: 32px; padding-bottom: 24px; {% if not loop.last %}border-bottom: 1px solid #e1e4e8;{% endif %}">
-                
-                {% if news.image_url %}
+            <div
+                style="margin-bottom: 32px; padding-bottom: 24px;{% if not loop.last %}border-bottom: 1px solid #e1e4e8;{% endif %}">
+
+                {% if news.image_cid %}
                 <div style="margin-bottom: 16px;">
-                    <a href="{{ news.link }}" target="_blank" style="text-decoration: none;">
-                        <img src="{{ news.image_url }}" alt="Article Thumbnail" style="max-width: 100%; height: auto; border-radius: 6px; display: block;">
-                    </a>
+                    <div style="max-height: 400px; overflow: hidden; border-radius: 6px;">
+                        <a href="{{ news.link }}" target="_blank" style="text-decoration: none;">
+                            <img src="cid:{{ news.image_cid }}" alt="Article Thumbnail" width="100%"
+                                style="max-width: 100%; height: auto; display: block; border: 0;">
+                        </a>
+                    </div>
+                </div>
+                {% elif news.image_src %}
+                <div style="margin-bottom: 16px;">
+                    <div style="max-height: 400px; overflow: hidden; border-radius: 6px;">
+                        <a href="{{ news.link }}" target="_blank" style="text-decoration: none;">
+                            <img src="{{ news.image_src }}" alt="Article Thumbnail" width="100%"
+                                style="max-width: 100%; height: auto; display: block; border: 0;">
+                        </a>
+                    </div>
                 </div>
                 {% endif %}
 
                 <h3 style="margin: 0 0 10px 0; font-size: 18px;">
-                    <a href="{{ news.link }}" target="_blank" style="color: #0366d6; text-decoration: none; font-weight: 600;">{{ news.title }}</a>
+                    <a href="{{ news.link }}" target="_blank"
+                        style="color: #0366d6; text-decoration: none; font-weight: 600;">{{ news.title }}</a>
                 </h3>
-                
+
                 <p style="margin: 0; color: #444c56; line-height: 1.7; font-size: 14px;">
                     {% if news.ai_summary %}
-                        {{ news.ai_summary | replace('\n', '<br>') | safe }}
+                    {{ news.ai_summary | replace('\n', '<br>') | safe }}
                     {% else %}
-                        {{ news.summary }}
+                    {{ news.summary }}
                     {% endif %}
                 </p>
 
@@ -118,10 +145,11 @@
             {% endfor %}
         </div>
 
-<div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa; text-align: center;">
+        <div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa; text-align: center;">
             <h4 style="margin: 0 0 10px 0; color: #24292e;">오늘의 뉴스레터가 좋으셨다면 공유해주세요.</h4>
             <p style="margin: 0; font-size: 13px; color: #586069;">아래 링크를 복사해서 동료에게 전달할 수 있습니다.</p>
-            <p style="margin-top: 10px; padding: 8px 12px; background-color: #fff; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; -webkit-user-select: all; -moz-user-select: all; -ms-user-select: all; user-select: all;">
+            <p
+                style="margin-top: 10px; padding: 8px 12px; background-color: #fff; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; -webkit-user-select: all; -moz-user-select: all; -ms-user-select: all; user-select: all;">
                 https://Tonyflyy.github.io/logistics-news-automation/archive/{{ today_date }}.html
             </p>
         </div>
@@ -129,12 +157,15 @@
         <div style="text-align: center; padding: 24px; font-size: 12px; color: #586069; border-top: 1px solid #e1e4e8;">
             <p style="margin: 0;">YLP 뉴스레터</p>
             <p style="margin: 10px 0 0;">
-                YLP화물: <a href="https://www.tmapfreight.com/" style="color: #0366d6; text-decoration: none;">사이트 바로가기</a>
-                | <a href="https://Tonyflyy.github.io/logistics-news-automation/archive/index.html" target="_blank" style="color: #0366d6; text-decoration: none;">지난 뉴스레터 보기</a>
+                YLP화물: <a href="https://www.tmapfreight.com/" style="color: #0366d6; text-decoration: none;">사이트
+                    바로가기</a>
+                | <a href="https://Tonyflyy.github.io/logistics-news-automation/archive/index.html" target="_blank"
+                    style="color: #0366d6; text-decoration: none;">지난 뉴스레터 보기</a>
             </p>
         </div>
 
     </div>
 
 </body>
+
 </html>
