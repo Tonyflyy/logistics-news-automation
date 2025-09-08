@@ -4,6 +4,7 @@ import os
 import requests
 import platform
 import time # ⬅️ time 라이브러리 추가
+from utils import image_to_base64_string
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from collections import defaultdict
@@ -18,10 +19,100 @@ class WeatherService:
         self.mid_term_temp_url = "http://apis.data.go.kr/1360000/MidFcstInfoService/getMidTa"
         self.mid_term_land_url = "http://apis.data.go.kr/1360000/MidFcstInfoService/getMidLandFcst"
 
-    def create_dashboard_image(self):
-        weather_data = self._get_weather_forecast()
-        analyzed_data = self._analyze_weather_risk(weather_data if weather_data else {})
-        return self._draw_dashboard_image(analyzed_data)
+    def create_dashboard_image(self, today_str):
+        """날씨 데이터로 대시보드 이미지를 생성하고, 파일 경로와 Base64 문자열을 딕셔너리로 반환합니다."""
+        # 1. 날짜가 포함된 고유한 파일명 생성
+        filename = f"images/weather_dashboard_{today_str}.png"
+        
+        try:
+            # 2. 날씨 데이터 수집 및 분석
+            weather_data = self._get_weather_forecast()
+            if not weather_data:
+                print("⚠️ 날씨 데이터를 수집하지 못해 대시보드 생성을 건너뜁니다.")
+                return None
+            
+            analyzed_data = self._analyze_weather_risk(weather_data)
+
+            # 3. Pillow를 사용하여 이미지 그리기
+            print("\n--- 🖼️ 대시보드 이미지 생성 시작 ---")
+            img_width, cell_height, top_margin = 1000, 100, 130 
+            img_height = top_margin + (cell_height * len(self.config.LOGISTICS_HUBS))
+            
+            font_path = self._get_font_path()
+            title_font = ImageFont.truetype(font_path, 32)
+            header_font = ImageFont.truetype(font_path, 18)
+            temp_font = ImageFont.truetype(font_path, 16)
+            risk_text_font = ImageFont.truetype(font_path, 14)
+
+            image = Image.new('RGB', (img_width, img_height), '#F9FAFB')
+            draw = ImageDraw.Draw(image)
+            
+            days = sorted(analyzed_data.keys())
+            if not days:
+                print("⚠️ 분석된 날씨 데이터가 없어 대시보드 생성을 중단합니다.")
+                return None
+
+            start_date = datetime.strptime(days[0], "%Y%m%d").strftime("%m/%d")
+            end_date = datetime.strptime(days[-1], "%Y%m%d").strftime("%m/%d")
+            draw.text((50, 30), f"권역별 주간 날씨 체크 ({start_date} ~ {end_date})", font=title_font, fill='#111827')
+
+            short_base_date, short_base_time = self._get_short_term_base_datetime()
+            update_time_str = f"업데이트: {short_base_date[4:6]}/{short_base_date[6:8]} {short_base_time[:2]}:{short_base_time[2:]} 기준"
+            update_text_width = draw.textlength(update_time_str, font=temp_font)
+            draw.text((img_width - update_text_width - 50, 45), update_time_str, font=temp_font, fill='#6B7280')
+
+            regions = list(self.config.LOGISTICS_HUBS.keys())
+            cell_width = (img_width - 100) / len(days)
+            weekdays = ['월', '화', '수', '목', '금', '토', '일']
+
+            for i, day in enumerate(days):
+                dt = datetime.strptime(day, "%Y%m%d")
+                x = 100 + (i * cell_width)
+                header_text = f"{dt.strftime('%m/%d')}({weekdays[dt.weekday()]})"
+                text_width = draw.textlength(header_text, font=header_font)
+                draw.text((x + cell_width/2 - text_width/2, top_margin - 50), header_text, font=header_font, fill='#374151')
+
+            for j, region in enumerate(regions):
+                y = top_margin + (j * cell_height)
+                text_width = draw.textlength(region, font=header_font)
+                draw.text((50 - text_width/2 if 50 - text_width/2 > 0 else 5, y + cell_height/2 - 10), region, font=header_font, fill='#1F2937')
+                for i, day in enumerate(days):
+                    x = 100 + (i * cell_width)
+                    data = analyzed_data.get(day, {}).get(region)
+                    if data and data.get('min_temp'):
+                        risk_level = data.get('risk_level', '안전')
+                        risk_color = {'안전': '#FFFFFF', '주의': '#FFFBEB', '위험': '#FEF2F2'}.get(risk_level, '#FFFFFF')
+                        draw.rectangle([x, y, x + cell_width, y + cell_height], fill=risk_color, outline='#E5E7EB')
+                        weather_icon = self._get_weather_icon(data.get('icon_code', 'sunny'))
+                        if weather_icon: image.paste(weather_icon, (int(x + cell_width/2 - 20), int(y + 15)), weather_icon)
+                        min_t, max_t = data.get('min_temp', '-'), data.get('max_temp', '-')
+                        temp_text = f"{max_t}° / {min_t}°"
+                        text_width = draw.textlength(temp_text, font=temp_font)
+                        draw.text((x + cell_width/2 - text_width/2, y + 60), temp_text, font=temp_font, fill='#4B5563')
+                        risk_text = data.get('risk_text', '')
+                        if risk_text and risk_text not in ["비", "눈"]:
+                            text_width = draw.textlength(risk_text, font=risk_text_font)
+                            text_color = {'주의': '#D97706', '위험': '#DC2626'}.get(risk_level)
+                            draw.text((x + cell_width/2 - text_width/2, y + 80), risk_text, font=risk_text_font, fill=text_color)
+                    else:
+                        draw.rectangle([x, y, x + cell_width, y + cell_height], fill='#F3F4F6', outline='#E5E7EB')
+                        text_width = draw.textlength("정보 없음", font=header_font)
+                        draw.text((x + cell_width/2 - text_width/2, y + cell_height/2 - 10), "정보 없음", font=header_font, fill='#9CA3AF')
+            
+            # 4. 이미지 파일로 저장 (이메일 첨부용)
+            image.save(filename)
+            print(f"✅ 7일 예보 대시보드 이미지 '{filename}' 저장 완료!")
+
+            # 5. 저장된 파일을 Base64로 변환 (웹페이지 삽입용)
+            base64_image = image_to_base64_string(filename)
+            
+            # 6. 최종 결과인 딕셔너리 반환
+            return {"filepath": filename, "base64": base64_image}
+
+        except Exception as e:
+            print(f"❌ 날씨 대시보드 이미지 생성 실패: {e}")
+            return None
+            return None
 
     def _get_weather_forecast(self):
         print("\n--- ☀️ 7일 날씨 데이터 수집 및 가공 시작 ---")
@@ -269,5 +360,4 @@ class WeatherService:
 if __name__ == '__main__':
     config = Config()
     weather_service = WeatherService(config)
-
     weather_service.create_dashboard_image()
