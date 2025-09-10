@@ -1,5 +1,4 @@
 # news_collector.py
-
 import os
 import smtplib
 import platform
@@ -1468,8 +1467,7 @@ def main_for_test():
         print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 if __name__ == "__main__":
-     main()
+     #main()
      #main_for_test()
-     #main_for_risk_briefing_test()
+     main_for_risk_briefing_test()
      
-
