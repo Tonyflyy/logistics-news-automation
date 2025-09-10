@@ -44,6 +44,7 @@ class RiskBriefingService:
                 print(f"WARN: {country_code} 공휴일 정보를 가져오는 중 오류 발생: {e}")
         return holiday_events
 
+
     def _get_manual_events(self, start_date, end_date):
         """Config 파일에 정의된 수동 이벤트 정보를 수집합니다."""
         manual_events = []
@@ -125,5 +126,3 @@ class RiskBriefingService:
         
         print(f"✅ {len(sorted_events)}개의 물류 리스크 이벤트를 발견했습니다.")
         return sorted_events
-
-
