@@ -41,6 +41,12 @@
             </div>
         </div>
         {% endif %}
+        
+         {% if risk_briefing_html %}
+        <div style="padding: 24px; border-bottom: 1px solid #e1e4e8;">
+            {{ risk_briefing_html | safe }}
+        </div>
+        {% endif %}
 
         {% if price_indicators and price_indicators.city_prices %}
         <div style="padding: 24px; border-bottom: 1px solid #e1e4e8;">
