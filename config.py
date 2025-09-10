@@ -31,7 +31,7 @@ class Config:
     
     # 뉴스 수집 기간
     NEWS_FETCH_HOURS = 24
-    MAX_ARTICLES = 35
+    MAX_ARTICLES = 500
 
     # 검색 키워드
     KEYWORD_GROUPS = [
@@ -170,4 +170,5 @@ class Config:
         "DE:Christmas Day": "크리스마스",
         "DE:Second Day of Christmas": "크리스마스 연휴",
     }
+
 
