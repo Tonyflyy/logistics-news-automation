@@ -1015,16 +1015,27 @@ def save_newsletter_history(news_list, filepath='previous_newsletter.json'):
         print(f"❌ 뉴스레터 내용 저장 실패: {e}")
 
 def update_archive_index():
-    """archive 폴더의 html 파일 목록을 읽어 index.html을 생성/업데이트합니다."""
+    """archive 폴더의 html 파일 목록을 생성 시간순으로 정렬하여 index.html을 생성/업데이트합니다."""
     print("-> 아카이브 인덱스 페이지를 업데이트합니다...")
     try:
         archive_dir = 'archive'
-        html_files = sorted(
-            [f for f in os.listdir(archive_dir) if f.endswith('.html') and f != 'index.html'],
-            reverse=True # 최신 날짜가 위로 오도록 역순 정렬
-        )
+        
+        # ✨ [핵심 수정] 파일 이름이 아닌, 파일의 최종 수정 시간을 기준으로 정렬합니다.
+        
+        # 1. 'index.html'을 제외한 모든 html 파일의 전체 경로를 가져옵니다.
+        file_paths = [
+            os.path.join(archive_dir, f) 
+            for f in os.listdir(archive_dir) 
+            if f.endswith('.html') and f != 'index.html'
+        ]
+        
+        # 2. 파일의 최종 수정 시간을 기준으로 내림차순(최신순) 정렬합니다.
+        sorted_paths = sorted(file_paths, key=os.path.getmtime, reverse=True)
+        
+        # 3. 전체 경로에서 파일 이름만 다시 추출합니다.
+        html_files = [os.path.basename(p) for p in sorted_paths]
 
-        # HTML 페이지 기본 구조
+        # HTML 페이지 기본 구조 (기존과 동일)
         html_content = """
         <!DOCTYPE html>
         <html lang="ko">
@@ -1048,12 +1059,11 @@ def update_archive_index():
                 <ul>
         """
 
-        # 파일 목록으로 링크 생성
+        # 파일 목록으로 링크 생성 (기존과 동일)
         for filename in html_files:
             date_str = filename.replace('.html', '')
             html_content += f'            <li><a href="{filename}">{date_str} 뉴스레터</a></li>\n'
 
-        # HTML 페이지 마무리
         html_content += """
                 </ul>
             </div>
@@ -1061,7 +1071,6 @@ def update_archive_index():
         </html>
         """
 
-        # index.html 파일 쓰기
         with open(os.path.join(archive_dir, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(html_content)
         
@@ -1311,3 +1320,4 @@ def main():
 if __name__ == "__main__":
      main()
      
+
