@@ -19,6 +19,35 @@ class WeatherService:
         self.mid_term_temp_url = "http://apis.data.go.kr/1360000/MidFcstInfoService/getMidTa"
         self.mid_term_land_url = "http://apis.data.go.kr/1360000/MidFcstInfoService/getMidLandFcst"
 
+    
+    def get_weekly_weather_risks(self):
+        """
+        7일간의 날씨 예보 데이터에서 물류 리스크(태풍, 폭설 등)를 찾아 리스트로 반환합니다.
+        """
+        # 1. 기존의 데이터 수집 함수를 그대로 사용합니다.
+        daily_forecast = self._get_weather_forecast()
+        if not daily_forecast:
+            return []
+
+        # 2. 기존의 리스크 분석 함수를 재사용하여 '위험', '주의' 수준과 리스크 텍스트를 가져옵니다.
+        analyzed_forecast = self._analyze_weather_risk(daily_forecast)
+
+        risks = []
+        risk_keywords = ["태풍", "폭설", "호우", "강풍", "풍랑"]
+
+        for date_str, regions in analyzed_forecast.items():
+            current_date = datetime.strptime(date_str, "%Y%m%d").date()
+            for location, weather_data in regions.items():
+                risk_text = weather_data.get('risk_text', '')
+                for keyword in risk_keywords:
+                    if keyword in risk_text:
+                        risks.append({"date": current_date, "location": location, "event": keyword})
+        
+        # 중복 리스크를 제거하고 반환합니다.
+        unique_risks = list({(r['date'], r['event'], r['location']): r for r in risks}.values())
+        return unique_risks
+    
+
     def create_dashboard_image(self, today_str):
         """날씨 데이터로 대시보드 이미지를 생성하고, 파일 경로와 Base64 문자열을 딕셔너리로 반환합니다."""
         # 1. 날짜가 포함된 고유한 파일명 생성
