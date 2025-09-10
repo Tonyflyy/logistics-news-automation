@@ -11,7 +11,7 @@ class Config:
     
 
     # ✨ [핵심] 'daily' 또는 'weekly'로 실행 모드를 선택합니다.
-    EXECUTION_MODE = 'weekly'
+    EXECUTION_MODE = 'daily'
 
     # API 키 및 수신자 목록 (환경 변수에서 로드)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
@@ -32,7 +32,7 @@ class Config:
     MIN_IMAGE_WIDTH = 300
     MIN_IMAGE_HEIGHT = 150
     DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News'
-    MAX_ARTICLES_TO_PROCESS = 1000 # 수집할 최대 기사 수
+    MAX_ARTICLES_TO_PROCESS = 300 # 수집할 최대 기사 수
     
      # ✨ [분리] 뉴스 수집 기간 설정
     NEWS_FETCH_HOURS_DAILY = 24
@@ -189,3 +189,4 @@ class Config:
         "DE:Christmas Day": "크리스마스",
         "DE:Second Day of Christmas": "크리스마스 연휴",
     }
+
