@@ -9,6 +9,10 @@ load_dotenv()
 class Config:
     """설정 값들을 관리하는 클래스"""
     
+
+    # ✨ [핵심] 'daily' 또는 'weekly'로 실행 모드를 선택합니다.
+    EXECUTION_MODE = 'weekly'
+
     # API 키 및 수신자 목록 (환경 변수에서 로드)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -24,17 +28,22 @@ class Config:
     TOKEN_FILE = 'token.json'
     CREDENTIALS_FILE = 'credentials.json'
 
-    # 이미지 스크래핑 설정
+    # --- 스크래핑 설정 ---
     MIN_IMAGE_WIDTH = 300
     MIN_IMAGE_HEIGHT = 150
-    DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News' # 기본 이미지 URL
+    DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News'
+    MAX_ARTICLES_TO_PROCESS = 1000 # 수집할 최대 기사 수
     
-    # 뉴스 수집 기간
-    NEWS_FETCH_HOURS = 24
-    MAX_ARTICLES = 500
+     # ✨ [분리] 뉴스 수집 기간 설정
+    NEWS_FETCH_HOURS_DAILY = 24
+    NEWS_FETCH_HOURS_WEEKLY = 168 # 7일
+
+    # ✨ [분리] AI가 최종 선택할 기사 수 설정
+    SELECT_NEWS_COUNT_DAILY = 10
+    SELECT_NEWS_COUNT_WEEKLY = 15
 
     # 검색 키워드
-    KEYWORD_GROUPS = [
+    KEYWORD_GROUPS_DAILY  = [
         ['물류', '화물', '운송', '배송', '물류산업'],
         ['육상운송', '화물차', '트럭', '물류센터', '물류창고'],
         ['풀필먼트', '콜드체인', '라스트마일', '미들마일'],
@@ -43,6 +52,16 @@ class Config:
         ['화물 주선', '운송 중개', '화물운송주선업', '화물정보망', '화물 플랫폼', '화물운송플랫폼'],
         ['CJ대한통운', '쿠팡로지스틱스', '한진택배', '롯데글로벌로지스', '국토교통부 물류'],
         ['티맵화물', '센디', '로지스퀘어', '고고엑스', '원콜', '카고링크']
+    ]
+
+    # ✨ [분리] 주간용 키워드 그룹
+    KEYWORD_GROUPS_WEEKLY = [
+        ['물류산업 동향', '공급망 관리', 'SCM', '물류 M&A', '이커머스 물류'],
+        ['육상운송', '화물차 파업', '물류센터', '철도운송', '콜드체인'],
+        ['해상운송', '항공운송', '컨테이너선', '항공화물', '인천항', '부산항', 'SCFI', '해상운임'],
+        ['CJ대한통운', '쿠팡 로지스틱스', '한진', '롯데글로벌로지스', 'HMM', '국토교통부', '물류 정책', '유가', '관세'],
+        ['스마트물류', '물류자동화', '물류 로봇', '디지털 물류', 'AI 물류', 'ESG 물류'],
+        ['화물운송플랫폼', '디지털 포워딩', '티맵화물', '센디', '로지스퀘어', '화물정보망']
     ]
 
     UNWANTED_IMAGE_PATTERNS = [
@@ -170,5 +189,3 @@ class Config:
         "DE:Christmas Day": "크리스마스",
         "DE:Second Day of Christmas": "크리스마스 연휴",
     }
-
-
