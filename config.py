@@ -69,7 +69,10 @@ class Config:
     AD_DOMAINS_BLACKLIST = [
         'contentsfeed.com',
         'googleadservices.com',
-        'doubleclick.net',
+        'doubleclick.net',''
+        'msn.com',
+        'nate.com',
+        'zum.com'
     ]
 
     # 날씨 API 설정
@@ -82,3 +85,4 @@ class Config:
         "호남권": {"nx": 58, "ny": 74,  "regId_temp": "11F20501", "regId_land": "11F20000"},
         "강원권": {"nx": 92, "ny": 131, "regId_temp": "11D20501", "regId_land": "11D20000"}
     }
+
