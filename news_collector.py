@@ -9,6 +9,7 @@ import json
 import time
 import random
 from weather_service import WeatherService 
+from risk_briefing_service import RiskBriefingService
 from utils import get_kst_today_str, markdown_to_html, image_to_base64_string
 import logging
 from datetime import datetime, timezone, timedelta, date
@@ -542,6 +543,55 @@ class NewsScraper:
             return False
 
 class AIService:
+    def generate_risk_briefing(self, risk_events):
+        """수집된 리스크 이벤트 목록을 바탕으로 AI 브리핑을 생성합니다."""
+        if not risk_events:
+            return None
+            
+        print("-> AI 물류 리스크 브리핑 생성 시작...")
+
+        event_context = "\n".join(
+            [f"- 날짜: {e['date'].strftime('%Y-%m-%d')}, 국가: {e['country']}, 이벤트: {e['name']}, 리스크 수준: {e['risk_level']}, 예상 영향: {e['impact_summary']}" for e in risk_events]
+        )
+
+        system_prompt = "당신은 글로벌 공급망 리스크 분석 전문가입니다. 주어진 데이터를 바탕으로, 화주와 차주 모두에게 유용한 물류 리스크 브리핑을 Markdown 형식으로 작성합니다."
+        
+        # ✨ [최종 개선] AI가 '화주'와 '차주'의 관점을 분리하여 분석하도록 프롬프트 수정
+        user_prompt = f"""
+        [향후 2주간의 글로벌 물류 리스크 이벤트 목록]
+        {event_context}
+
+        ---
+        [작업 지시]
+        당신은 단순한 정보 전달자가 아닌 '분석가'입니다. 아래 규칙에 따라 '글로벌 물류 리스크 브리핑'을 작성해주세요.
+
+        1.  **헤드라인 요약**:
+            - '## 🗓️ 주간 글로벌 물류 리스크 브리핑' 제목으로 시작합니다.
+            - 목록에서 가장 중요하고 영향이 큰 리스크 1~2개를 식별하여, 화주와 차주 모두에게 미칠 핵심 영향을 2~3 문장으로 요약해주세요. 연속된 공휴일은 '연휴'로 묶어서 표현해야 합니다.
+
+        2.  **상세 브리핑**:
+            - 전체 리스크 이벤트를 타임라인 형식으로 정리합니다.
+            - **핵심 규칙: 각 이벤트의 영향을 '화주'와 '차주'의 관점으로 반드시 나누어 각각 한 문장으로 설명해주세요.**
+                - **화주 영향:** 선적 예약의 어려움, 운임 변동, 리드타임 증가 등 '비용'과 '일정' 관점의 정보를 제공합니다.
+                - **차주 영향:** 터미널 혼잡, 운행 대기시간 증가, 특정 구간 물량 변동 등 '운행'과 '수입' 관점의 정보를 제공합니다.
+            - 여러 날에 걸친 동일한 이벤트는 `[YYYY/MM/DD ~ MM/DD]` 형식으로 기간을 묶어서 표현해주세요.
+            - 형식: 
+                * `* **[날짜 또는 기간] [국기] [국가] - [이벤트명]**`
+                * `  * **화주 영향:** [화주 입장에서의 예상 영향]`
+                * `  * **차주 영향:** [차주 입장에서의 예상 영향]`
+                * `  * **리스크:** [리스크 수준] [경고 이모지]`
+
+        [참고 데이터]
+        - 요일 계산: 2025-09-10은 수요일입니다.
+        - 국기 이모지: 한국🇰🇷, 중국🇨🇳, 미국🇺🇸, 베트남🇻🇳, 독일🇩🇪
+        - 경고 이모지: 높음❗, 중간⚠️, 낮음ℹ️
+        """
+        
+        briefing = self._generate_content_with_retry(system_prompt, user_prompt)
+        if briefing:
+            print("✅ AI 물류 리스크 브리핑 생성 성공!")
+        return briefing
+    
     def generate_single_summary(self, article_title: str, article_link: str, article_text_from_selenium: str) -> str | None:
         """
         (최종 안정화 버전) 기사 요약을 생성합니다.
@@ -1062,43 +1112,48 @@ class EmailService:
             print("🚨 GMAIL_APP_PASSWORD Secret이 설정되지 않았습니다.")
             return
 
-        msg = MIMEMultipart('related')
-        msg['From'] = formataddr((self.config.SENDER_NAME, sender_email))
-        msg['To'] = ", ".join(self.config.RECIPIENT_LIST)
-        msg['Subject'] = subject
-
-        msg_alternative = MIMEMultipart('alternative')
-        msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
-        msg.attach(msg_alternative)
-
-        # --- ✨ 이미지 첨부 로직 수정 ✨ ---
-        if images_to_embed:
-            for image_info in images_to_embed:
-                image_cid = image_info['cid']
-                msg_image = None
-                
-                # 파일 경로로 이미지를 첨부하는 경우 (차트, 날씨)
-                if 'path' in image_info and os.path.exists(image_info['path']):
-                    with open(image_info['path'], 'rb') as f:
-                        msg_image = MIMEImage(f.read())
-                # 이미지 데이터로 직접 첨부하는 경우 (뉴스 기사)
-                elif 'data' in image_info and image_info['data']:
-                    msg_image = MIMEImage(image_info['data'])
-                
-                if msg_image:
-                    msg_image.add_header('Content-ID', f'<{image_cid}>')
-                    msg.attach(msg_image)
-        # --- ✨ 이미지 첨부 로직 수정 완료 ✨ ---
-        
         try:
+            # ✨ [개선] SMTP 서버에 먼저 연결하고 로그인합니다.
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(sender_email, app_password)
-            server.send_message(msg)
+
+            # ✨ [핵심 개선] 수신자 목록을 한 명씩 순회하며 개별 이메일을 발송합니다.
+            for recipient in self.config.RECIPIENT_LIST:
+                # 각 수신자마다 새로운 메시지 객체를 생성합니다.
+                msg = MIMEMultipart('related')
+                msg['From'] = formataddr((self.config.SENDER_NAME, sender_email))
+                msg['Subject'] = subject
+                msg['To'] = recipient # ✨ 받는 사람을 현재 수신자 1명으로 설정
+
+                msg_alternative = MIMEMultipart('alternative')
+                msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
+                msg.attach(msg_alternative)
+
+                if images_to_embed:
+                    for image_info in images_to_embed:
+                        image_cid = image_info['cid']
+                        msg_image = None
+                        if 'path' in image_info and os.path.exists(image_info['path']):
+                            with open(image_info['path'], 'rb') as f:
+                                msg_image = MIMEImage(f.read())
+                        elif 'data' in image_info and image_info['data']:
+                            msg_image = MIMEImage(image_info['data'])
+                        
+                        if msg_image:
+                            msg_image.add_header('Content-ID', f'<{image_cid}>')
+                            msg.attach(msg_image)
+                
+                # 서버에 현재 수신자를 위한 메시지를 보냅니다.
+                server.send_message(msg)
+                print(f" -> ✅ 이메일 발송 성공: {recipient}")
+            
+            # ✨ [개선] 모든 발송이 끝난 후 서버 연결을 종료합니다.
             server.quit()
-            print(f"✅ 이메일 발송 성공! (수신자: {msg['To']})")
+            print(f"✅ 총 {len(self.config.RECIPIENT_LIST)}명에게 이메일 발송을 완료했습니다.")
+
         except Exception as e:
-            print(f"❌ SMTP 이메일 발송 실패: {e}")
+            print(f"❌ SMTP 이메일 발송 중 오류 발생: {e}")
 
 def load_newsletter_history(filepath='previous_newsletter.json'):
     """이전에 발송된 뉴스레터 내용을 JSON 파일에서 불러옵니다."""
@@ -1216,6 +1271,8 @@ def main():
         news_service = NewsService(config, None, None) 
         email_service = EmailService(config)
         weather_service = WeatherService(config)
+        risk_briefing_service = RiskBriefingService()
+
 
         os.makedirs('archive', exist_ok=True)
         os.makedirs('images', exist_ok=True)
@@ -1228,6 +1285,13 @@ def main():
         if price_indicators.get("seven_day_data"):
             price_chart_result = create_price_trend_chart(price_indicators["seven_day_data"], today_str)
 
+
+        risk_events = risk_briefing_service.generate_risk_events()
+        ai_service_main = AIService(config)
+        risk_briefing_md = ai_service_main.generate_risk_briefing(risk_events)
+        risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
+
+
         previous_top_news = load_newsletter_history()
         # ✨ [개선] news_service는 이제 ai_service를 직접 사용하지 않고, 독립적인 함수를 호출합니다.
         all_news = news_service.get_fresh_news(driver_path)
@@ -1237,7 +1301,6 @@ def main():
             return
         
         # ✨ AI 선별과 브리핑은 별도의 AIService 인스턴스를 통해 처리
-        ai_service_main = AIService(config)
         top_news = ai_service_main.select_top_news(all_news, previous_top_news)
 
         if not top_news:
@@ -1259,6 +1322,7 @@ def main():
 
         context = {
             "today_date": today_str, "ai_briefing": ai_briefing_html,
+            "risk_briefing_html": risk_briefing_html,
             "price_indicators": price_indicators, "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
             "has_weather_dashboard": True if weather_dashboard_b64 else False
@@ -1295,6 +1359,50 @@ def main():
         import traceback
         traceback.print_exc()
         print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+
+def main_for_risk_briefing_test():
+    """뉴스 수집을 건너뛰고 '글로벌 물류 리스크 브리핑' 기능만 테스트하는 함수"""
+    print("🚀 물류 리스크 브리핑 기능 테스트를 시작합니다.")
+    try:
+        # 1. 필요한 서비스 객체들 생성
+        config = Config()
+        email_service = EmailService(config)
+        ai_service = AIService(config)
+        
+        # ✨ 테스트 대상인 RiskBriefingService 임포트 및 생성
+        from risk_briefing_service import RiskBriefingService
+        risk_briefing_service = RiskBriefingService()
+        
+        today_str = get_kst_today_str()
+
+        # 2. 리스크 이벤트 수집 및 AI 브리핑 생성 (테스트 핵심 로직)
+        risk_events = risk_briefing_service.generate_risk_events()
+        risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
+        risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else "<i>(AI 리스크 브리핑 생성에 실패했거나, 해당 기간에 리스크가 없습니다.)</i>"
+
+        # 3. 이메일 템플릿에 전달할 context 준비 (나머지는 빈 데이터)
+        context = {
+            "today_date": today_str,
+            "ai_briefing": "<i>(뉴스 브리핑은 테스트에서 생략됩니다.)</i>",
+            "risk_briefing_html": risk_briefing_html,
+            "price_indicators": {}, # 빈 데이터
+            "news_list": [], # 빈 리스트
+            "weather_dashboard_b64": None,
+            "has_weather_dashboard": False
+        }
+        
+        # 4. 이메일 본문 생성 및 발송
+        email_body = render_html_template(context, target='email')
+        email_subject = f"[{today_str}] 🗓️ 글로벌 물류 리스크 브리핑 기능 테스트"
+        
+        email_service.send_email(email_subject, email_body)
+        
+        print("\n🎉 리스크 브리핑 테스트 이메일 발송이 성공적으로 완료되었습니다.")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 def main_for_test():
     """뉴스 수집을 건너뛰고 날씨/데이터 지표 기능만 테스트하는 함수"""
@@ -1360,6 +1468,7 @@ def main_for_test():
         print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
 if __name__ == "__main__":
-     main()
+     #main()
      #main_for_test()
+     main_for_risk_briefing_test()
      
