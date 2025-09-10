@@ -9,7 +9,7 @@ import time
 import random
 from weather_service import WeatherService 
 from risk_briefing_service import RiskBriefingService
-from utils import get_kst_today_str, markdown_to_html, image_to_base64_string
+from utils import get_kst_today_str,get_kst_week_str, markdown_to_html, image_to_base64_string
 import logging
 from datetime import datetime, timezone, timedelta, date
 from email.mime.text import MIMEText
@@ -590,6 +590,8 @@ class AIService:
             print("✅ AI 물류 리스크 브리핑 생성 성공!")
         return briefing
     
+
+    
     def generate_single_summary(self, article_title: str, article_link: str, article_text_from_selenium: str) -> str | None:
         """
         (최종 안정화 버전) 기사 요약을 생성합니다.
@@ -670,52 +672,50 @@ class AIService:
                 time.sleep(2 ** attempt) # 재시도 전 대기 시간 증가
         return None
 
-    def select_top_news(self, news_list, previous_news_list):
+    def select_top_news(self, news_list, previous_news_list, count=10):
         """
-        뉴스 목록에서 중복을 제거하고 가장 중요한 Top 10 뉴스를 선정합니다.
+        뉴스 목록에서 중복을 제거하고 가장 중요한 Top 뉴스를 선정합니다.
         - news_list: 오늘의 후보 뉴스 목록
-        - previous_news_list: 어제 발송했던 뉴스 목록
+        - previous_news_list: 이전 발송 뉴스 목록
+        - count: 최종적으로 선택할 기사 개수
         """
-        print(f"AI 뉴스 선별 시작... (대상: {len(news_list)}개)")
+        # ✨ [개선] 로그에 목표 개수(count)를 함께 출력
+        print(f"AI 뉴스 선별 시작... (대상: {len(news_list)}개, 목표: {count}개)")
 
-        # (추가) 어제 뉴스 목록을 AI에게 전달할 형식으로 변환
-        previous_news_context = "어제는 발송된 뉴스가 없습니다."
+        if not news_list:
+            return []
+
+        previous_news_context = "이전 발송 뉴스가 없습니다."
         if previous_news_list:
             previous_news_context = "\n\n".join(
                 [f"- 제목: {news['title']}\n  요약: {news['ai_summary']}" for news in previous_news_list]
             )
 
-        # 오늘의 후보 뉴스 목록을 형식에 맞게 변환
         today_candidates_context = "\n\n".join(
             [f"기사 #{i}\n제목: {news['title']}\n요약: {news['ai_summary']}" for i, news in enumerate(news_list)]
         )
 
         system_prompt = "당신은 독자에게 매일 신선하고 가치 있는 정보를 제공하는 것을 최우선으로 하는 대한민국 최고의 물류 전문 뉴스 편집장입니다. 당신의 응답은 반드시 JSON 형식이어야 합니다."
         
-        # (변경) 두 가지 중복 제거 규칙이 모두 포함된 최종 프롬프트
         user_prompt = f"""
-        [어제 발송된 주요 뉴스]
+        [이전 발송 주요 뉴스]
         {previous_news_context}
-
         ---
-
         [오늘의 후보 뉴스 목록]
         {today_candidates_context}
-
         ---
-
         [당신의 가장 중요한 임무와 규칙]
-        1.  **새로운 주제 최우선**: [오늘의 후보 뉴스 목록]에서 뉴스를 선택할 때, [어제 발송된 주요 뉴스]와 **주제가 겹치지 않는 새로운 소식**을 최우선으로 선정해야 합니다.
-        2.  **중요 후속 기사만 허용**: 어제 뉴스의 후속 기사는 '계획 발표'에서 '정식 계약 체결'처럼 **매우 중대한 진전이 있을 경우에만** 포함시키고, 단순 진행 상황 보도는 과감히 제외하세요.
-        3.  **오늘 뉴스 내 중복 제거**: [오늘의 후보 뉴스 목록] 내에서도 동일한 사건(예: 'A사 물류센터 개장')을 다루는 기사가 여러 언론사에서 나왔다면, 가장 제목이 구체적이고 내용이 풍부한 **기사 단 하나만**을 대표로 선정해야 합니다.
+        1.  **새로운 주제 최우선**: [오늘의 후보 뉴스 목록]에서 뉴스를 선택할 때, [이전 발송 주요 뉴스]와 **주제가 겹치지 않는 새로운 소식**을 최우선으로 선정해야 합니다.
+        2.  **중요 후속 기사만 허용**: 이전 뉴스의 후속 기사는 '계획 발표'에서 '정식 계약 체결'처럼 **매우 중대한 진전이 있을 경우에만** 포함시키고, 단순 진행 상황 보도는 과감히 제외하세요.
+        3.  **오늘 뉴스 내 중복 제거**: [오늘의 후보 뉴스 목록] 내에서도 동일한 사건을 다루는 기사가 여러 언론사에서 나왔다면, 가장 제목이 구체적이고 내용이 풍부한 **기사 단 하나만**을 대표로 선정해야 합니다.
         4.  **보도자료 및 사실 기반 뉴스 우선**: 구체적인 사건, 계약 체결, 기술 발표, 정책 변경 등 '사실(Fact)' 전달 위주의 기사를 최우선으로 선정하세요.
         5.  **칼럼 및 의견 기사 제외**: 특정인의 생각이나 의견이 중심이 되는 칼럼, 사설, 인터뷰, 심층 분석/해설 기사는 뉴스 가치가 떨어지므로 과감히 제외해야 합니다.
 
         [작업 지시]
-        위의 규칙들을 가장 엄격하게 준수하여, [오늘의 후보 뉴스 목록] 중에서 독자에게 가장 가치있는 최종 기사 10개의 번호(인덱스)를 선정해주세요.
+        위의 규칙들을 가장 엄격하게 준수하여, [오늘의 후보 뉴스 목록] 중에서 독자에게 가장 가치있는 최종 기사 {count}개의 번호(인덱스)를 선정해주세요.
 
         [출력 형식]
-        - 반드시 'selected_indices' 키에 최종 선정한 기사 10개의 인덱스를 숫자 배열로 담은 JSON 객체로만 응답해야 합니다.
+        - 반드시 'selected_indices' 키에 최종 선정한 기사 {count}개의 인덱스를 숫자 배열로 담은 JSON 객체로만 응답해야 합니다.
         - 예: {{"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}}
         """
         
@@ -728,29 +728,46 @@ class AIService:
                 print(f"✅ AI가 {len(top_news)}개 뉴스를 선별했습니다.")
                 return top_news
             except (json.JSONDecodeError, KeyError) as e:
-                print(f"❌ AI 응답 파싱 실패: {e}. 상위 10개 뉴스를 임의로 선택합니다.")
+                # ✨ [개선] 오류 발생 시, 고정된 10개가 아닌 요청된 count만큼 반환
+                print(f"❌ AI 응답 파싱 실패: {e}. 상위 {count}개 뉴스를 임의로 선택합니다.")
+                return news_list[:count]
         
-        return news_list[:10]
+        return news_list[:count]
 
-    def generate_briefing(self, news_list):
-        """선별된 뉴스 목록을 바탕으로 데일리 브리핑을 생성합니다."""
-        print("AI 브리핑 생성 시작...")
+    def generate_briefing(self, news_list, mode='daily'):
+        """선별된 뉴스 목록을 바탕으로 일간 또는 주간 브리핑을 생성합니다."""
+        if not news_list:
+            return "" # 뉴스 목록이 비어있으면 빈 문자열 반환
+
+        print(f"AI 브리핑 생성 시작... (모드: {mode})")
         context = "\n\n".join([f"제목: {news['title']}\n요약: {news['ai_summary']}" for news in news_list])
         
-        system_prompt = "당신은 탁월한 통찰력을 가진 IT/경제 뉴스 큐레이터입니다. Markdown 형식을 사용하여 매우 간결하고 읽기 쉬운 '데일리 브리핑'을 작성해주세요."
-        user_prompt = f"""
-        아래 뉴스 목록을 분석하여, 독자를 위한 '데일리 브리핑'을 작성해주세요.
-        
-        **출력 형식 규칙:**
-        1. '에디터 브리핑'은 '## 에디터 브리핑' 헤더로 시작하며, 오늘 뉴스의 핵심을 2~3 문장으로 요약합니다.
-        2. '주요 뉴스 분석'은 '## 주요 뉴스 분석' 헤더로 시작합니다.
-        3. 주요 뉴스 분석에서는 가장 중요한 뉴스 카테고리 2~3개를 '###' 헤더로 구분합니다.
-        4. 각 카테고리 안에서는, 관련된 여러 뉴스를 하나의 간결한 문장으로 요약하고 글머리 기호(`*`)를 사용합니다.
-        5. 문장 안에서 강조하고 싶은 특정 키워드는 큰따옴표(" ")로 묶어주세요.
-        
-        [오늘의 뉴스 목록]
-        {context}
-        """
+        # ✨ [개선] 주간 모드일 때, AI의 역할과 지시를 더 분석적으로 변경
+        if mode == 'weekly':
+            system_prompt = "당신은 한 주간의 물류 산업 동향을 날카롭게 분석하고 종합하는 전문 애널리스트입니다. 독자들이 이해하기 쉽게 Markdown 형식으로 '주간 핵심 동향 브리핑'을 작성합니다."
+            user_prompt = f"""
+            [지난 주간 주요 뉴스 목록]
+            {context}
+
+            ---
+            [작업 지시]
+            1. '## 📊 주간 핵심 동향 요약' 제목으로 시작합니다.
+            2. 모든 뉴스를 종합하여, 이번 주 물류 시장의 가장 중요한 **'흐름'과 '변화'**를 2~3 문장으로 요약하여 서론을 작성해주세요.
+            3. '### 금주의 주요 이슈 분석' 소제목 아래에, 가장 중요한 이슈 2~3개를 주제별(예: '플랫폼 경쟁 심화', '해상운임 변동')로 묶어 글머리 기호(`*`)로 분석해주세요. 여러 기사를 종합하여 하나의 흐름으로 설명해야 합니다.
+            4. 문장 안에서 특정 기업명, 서비스명, 정책 등은 큰따옴표(" ")로 묶어 강조해주세요.
+            """
+        else: # daily 모드
+            system_prompt = "당신은 핵심만 간결하게 전달하는 IT/물류 전문 뉴스 큐레이터입니다. Markdown 형식으로 '데일리 브리핑'을 작성합니다."
+            user_prompt = f"""
+            [오늘의 주요 뉴스 목록]
+            {context}
+
+            ---
+            [작업 지시]
+            1. '## 📰 AI 에디터 브리핑' 제목으로 시작하며, 오늘 발생한 뉴스 중 가장 중요한 핵심 내용을 2~3 문장으로 요약합니다.
+            2. '### 오늘의 주요 토픽' 소제목 아래에, 가장 중요한 뉴스 카테고리 2~3개를 글머리 기호(`*`)로 요약합니다.
+            3. 문장 안에서 특정 기업명이나 서비스명은 큰따옴표(" ")로 묶어 강조해주세요.
+            """
         
         briefing = self._generate_content_with_retry(system_prompt, user_prompt)
         if briefing: 
@@ -759,43 +776,10 @@ class AIService:
 
 
 class NewsService:
-    def __init__(self, config, scraper, ai_service):
+    def __init__(self, config):
         self.config = config
-        self.scraper = scraper
-        self.ai_service = ai_service
         self.sent_links = self._load_sent_links()
 
-    # def _create_stealth_driver(self):
-    #     chrome_options = Options()
-    #     # ✨ [개선] '--headless=new'는 최신 headless 모드를 의미합니다.
-    #     chrome_options.add_argument("--headless=new") 
-    #     chrome_options.add_argument("--no-sandbox")
-    #     chrome_options.add_argument("--disable-dev-shm-usage")
-        
-    #     # ✨ [개선] 불필요한 로그 메시지를 숨겨서 터미널을 깨끗하게 유지합니다.
-    #     chrome_options.add_argument("--log-level=3") 
-    #     chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-
-    #     # ✨ [성능 향상] 스크래핑 시 이미지 로딩을 비활성화하여 페이지 로딩 속도를 대폭 향상시킵니다.
-    #     chrome_options.add_argument("--blink-settings=imagesEnabled=false") 
-
-    #     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    #     chrome_options.add_experimental_option('useAutomationExtension', False)
-    #     chrome_options.add_argument(f'--user-agent={random.choice(self.config.USER_AGENTS)}')
-    #     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        
-    #     try:
-    #         service = ChromeService(ChromeDriverManager().install())
-    #         driver = webdriver.Chrome(service=service, options=chrome_options)
-    #         stealth(driver, languages=["ko-KR", "ko"], vendor="Google Inc.", platform="Win32",
-    #                 webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-            
-    #         # ✨ [개선] 페이지 전체가 로딩될 때까지 기다리지 않고, HTML 구조만 다운로드되면 바로 다음 단계로 진행하여 속도를 개선합니다.
-    #         driver.set_page_load_timeout(20) # 페이지 전체 로딩 타임아웃
-    #         return driver
-    #     except Exception as e:
-    #         print(f"🚨 드라이버 생성 실패: {e}")
-    #         return None
 
     def _load_sent_links(self):
         try:
@@ -804,171 +788,22 @@ class NewsService:
         except FileNotFoundError:
             return set()
 
-    # def _clean_and_validate_url(self, url: str) -> str | None:
-    #     try:
-    #         parsed = urlparse(url)
-            
-    #         # 1. 광고 도메인 필터링
-    #         if any(ad_domain in parsed.netloc for ad_domain in self.config.AD_DOMAINS_BLACKLIST):
-    #             return None
-            
-    #         # ✨ [개선] URL 패턴으로 '기사 페이지' 여부 판별
-    #         path = parsed.path.lower()
-    #         # 기사 URL의 흔한 패턴: 숫자가 있거나, 특정 키워드가 있거나, .html로 끝나거나
-    #         is_likely_article = (
-    #             any(char.isdigit() for char in path) or
-    #             any(keyword in path for keyword in ['/news/', '/article/', '/view/']) or
-    #             path.endswith('.html') or path.endswith('.php') or path.endswith('.do')
-    #         )
-            
-    #         # 예외 사이트 처리 (hyundai.co.kr은 경로가 짧아도 허용)
-    #         if 'hyundai.co.kr' in parsed.netloc:
-    #             pass
-    #         # 위의 패턴에 해당하지 않으면 기사가 아닐 확률이 높음
-    #         elif not is_likely_article:
-    #             print(f"   ㄴ> 🗑️ 기사 URL 패턴이 아니라서 제외: {url}...")
-    #             return None
-
-    #         cleaned_url = parsed._replace(fragment="").geturl()
-    #         return cleaned_url
-    #     except Exception:
-    #         return None
-    
-    # def _resolve_google_news_url(self, entry):
-    #     """Selenium을 사용해 Google News 링크에서 실제 기사 URL만 추출합니다."""
-    #     driver = None
-    #     try:
-    #         driver = self._create_stealth_driver()
-    #         if not driver: return None
-            
-    #         driver.get(entry['link'])
-    #         wait = WebDriverWait(driver, 20)
-    #         link_element = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'a')))
-    #         original_url = link_element.get_attribute('href')
-    #         validated_url = self._clean_and_validate_url(original_url)
-            
-    #         if validated_url:
-    #             print(f"  -> ✅ URL 추출 성공: {entry['title']}")
-    #             return {'title': entry['title'], 'link': validated_url}
-    #         return None
-    #     except Exception as e:
-    #         print(f"  ㄴ> ❌ URL 추출 실패: '{entry['title']}'에서 오류 발생: {e.__class__.__name__}")
-    #         return None
-    #     finally:
-    #         if driver:
-    #             driver.quit()
-
-    # def _process_article_content(self, article_info):
-    #     """(Selenium 대기 기능 강화) 실제 URL을 받아 콘텐츠 분석, AI 요약, 이미지 스크래핑을 수행합니다."""
-    #     title = article_info['title']
-    #     url = article_info['link']
-    #     driver = None
-
-    #     try:
-    #         driver = self._create_stealth_driver()
-    #         if not driver:
-    #             print(f"  ㄴ> ❌ 드라이버 생성 실패, 기사 건너뜀: {title}")
-    #             return None
-            
-    #         driver.get(url)
-            
-    #         # ✨ [개선] 페이지의 핵심 본문 영역 중 하나가 나타날 때까지 최대 10초간 '지능적으로' 기다립니다.
-    #         content_selectors = '#article-view-content, .article_body, .entry-content, #article-view, #articleBody, .post-content'
-    #         WebDriverWait(driver, 20).until(
-    #             EC.presence_of_element_located((By.CSS_SELECTOR, content_selectors))
-    #         )
-            
-    #         html_content = driver.page_source
-    #         soup = BeautifulSoup(html_content, 'lxml')
-
-    #         content_area = soup.select_one(content_selectors)
-            
-    #         if not content_area:
-    #             print(f"   ㄴ> 🗑️ (대기 후에도) 기사 본문 구조를 찾지 못해 제외: {url}")
-    #             return None
-            
-    #         article_text = content_area.get_text(strip=True)
-
-    #         if len(article_text) < 300:
-    #             print(f"  ㄴ> 🗑️ 본문 내용이 짧아 제외: {url}")
-    #             return None
-            
-    #         ai_summary = self.ai_service.generate_single_summary(title, url)
-    #         if not ai_summary or "요약 정보를 생성할 수 없습니다" in ai_summary:
-    #             print(f"  ㄴ> ⚠️ AI 요약 생성 실패, 기사 제외")
-    #             return None
-            
-    #         image_url = self.scraper.get_image_url(url)
-    #         image_data = None
-    #         final_width, final_height = 0, 0
-            
-    #         IMAGE_MAX_WIDTH = 640
-    #         IMAGE_MAX_HEIGHT = 800
-    #         TALL_IMAGE_ASPECT_RATIO_THRESHOLD = 1.5
-
-    #         if image_url and image_url != self.config.DEFAULT_IMAGE_URL:
-    #             try:
-    #                 img_response = self.scraper.session.get(image_url, timeout=10)
-    #                 img_response.raise_for_status()
-    #                 img = Image.open(BytesIO(img_response.content))
-    #                 original_width, original_height = img.size
-                    
-    #                 if original_width < IMAGE_MAX_WIDTH:
-    #                     final_width, final_height = original_width, original_height
-    #                     buffer = BytesIO()
-    #                     if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-    #                     img.save(buffer, format='JPEG', quality=90)
-    #                     image_data = buffer.getvalue()
-    #                 else:
-    #                     aspect_ratio = original_height / original_width # ✨ [버그 수정] 오타 수정
-    #                     if aspect_ratio > TALL_IMAGE_ASPECT_RATIO_THRESHOLD:
-    #                         target_height = min(original_height, IMAGE_MAX_HEIGHT)
-    #                         target_width = int(target_height / aspect_ratio)
-    #                         img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-    #                     else:
-    #                         target_width = IMAGE_MAX_WIDTH
-    #                         target_height = int(target_width * aspect_ratio)
-    #                         img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-    #                     final_width, final_height = img.size
-    #                     buffer = BytesIO()
-    #                     if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-    #                     img.save(buffer, format='JPEG', quality=85)
-    #                     image_data = buffer.getvalue()
-    #             except Exception as e:
-    #                 print(f"  ㄴ> ⚠️ 이미지 처리 실패: {e.__class__.__name__}, 이미지는 제외하고 진행")
-    #                 image_data = None
-
-    #         if not image_data:
-    #             print(f"   ㄴ> 🗑️ 이미지가 없어 기사 제외: {title}")
-    #             return None
-
-    #         return {
-    #             'title': title, 'link': url, 'ai_summary': ai_summary, 'image_data': image_data,
-    #             'image_final_width': final_width, 'image_final_height': final_height
-    #         }
-    #     except Exception as e:
-    #         print(f"  ㄴ> ❌ 콘텐츠 처리 중 오류: '{title}' ({e.__class__.__name__})")
-    #         return None
-    #     finally:
-    #         if driver:
-    #             driver.quit()
-
-    def get_fresh_news(self,driver_path: str):
-        # --- (상단의 뉴스 검색 및 필터링 로직은 기존과 동일) ---
+    def fetch_candidate_articles(self, keywords, hours):
         print("최신 뉴스 수집을 시작합니다...")
         client = GoogleNews(lang='ko', country='KR')
         all_entries, unique_links = [], set()
-        end_date, start_date = date.today(), date.today() - timedelta(hours=self.config.NEWS_FETCH_HOURS)
+        end_date, start_date = date.today(), date.today() - timedelta(hours=hours)
         print(f"검색 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
-        for i, group in enumerate(self.config.KEYWORD_GROUPS):
-            query = ' OR '.join(f'"{keyword}"' for keyword in group) + ' -해운 -항공'
-            print(f"\n({i+1}/{len(self.config.KEYWORD_GROUPS)}) 그룹 검색 중: [{', '.join(group)}]")
+        
+        for i, group in enumerate(keywords):
+            query = ' OR '.join(f'"{k}"' for k in group) + ' -해운 -항공'
+            print(f"\n({i+1}/{len(keywords)}) 그룹 검색 중: [{', '.join(group)}]")
             try:
                 search_results = client.search(query, from_=start_date.strftime('%Y-%m-%d'), to_=end_date.strftime('%Y-%m-%d'))
                 for entry in search_results['entries']:
                     source_url = entry.source.get('href', '').lower()
                     if any(b_domain in source_url for b_domain in self.config.AD_DOMAINS_BLACKLIST):
-                        continue # 블랙리스트에 포함된 출처면 이 기사는 건너뜀
+                        continue
                     link = entry.get('link')
                     if link and link not in unique_links:
                         all_entries.append(entry)
@@ -977,51 +812,43 @@ class NewsService:
                 time.sleep(4)
             except Exception as e:
                 print(f" ❌ 그룹 검색 중 오류 발생: {e}")
+
         print(f"\n모든 그룹 검색 완료. 총 {len(all_entries)}개의 중복 없는 기사를 발견했습니다.")
         valid_articles = []
-        now, time_limit = datetime.now(timezone.utc), timedelta(hours=self.config.NEWS_FETCH_HOURS)
+        now, time_limit = datetime.now(timezone.utc), timedelta(hours=hours)
         for entry in all_entries:
             if 'published_parsed' in entry and (now - datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=timezone.utc)) <= time_limit:
                 valid_articles.append(entry)
-        print(f"시간 필터링 후 {len(valid_articles)}개의 유효한 기사가 남았습니다.")
         
+        print(f"시간 필터링 후 {len(valid_articles)}개의 유효한 기사가 남았습니다.")
         new_articles = [article for article in valid_articles if _clean_and_validate_url_worker(article['link']) not in self.sent_links]
         print(f"이미 발송된 기사를 제외하고, 총 {len(new_articles)}개의 새로운 후보 기사를 발견했습니다.")
-
-        if not new_articles:
+        return new_articles
+    
+    def process_articles(self, articles, driver_path):
+        if not articles: 
             return []
-            
+        
         print("\n--- 1단계: 실제 기사 URL 추출 시작 (병렬 처리) ---")
         resolved_articles = []
         with ProcessPoolExecutor(max_workers=5) as executor:
-            future_to_entry = {executor.submit(resolve_google_news_url_worker, entry, driver_path): entry for entry in new_articles[:self.config.MAX_ARTICLES]}
+            future_to_entry = {executor.submit(resolve_google_news_url_worker, entry, driver_path): entry for entry in articles[:self.config.MAX_ARTICLES_TO_PROCESS]}
             for future in as_completed(future_to_entry):
                 resolved_info = future.result()
                 if resolved_info: resolved_articles.append(resolved_info)
         print(f"--- 1단계 완료: {len(resolved_articles)}개의 유효한 실제 URL 확보 ---\n")
-
-        if not resolved_articles: return []
-
-        # ✨ [핵심 개선] 2단계: 기사 콘텐츠를 '묶음'으로 나누어 병렬 처리
-        print(f"--- 2단계: 기사 콘텐츠 병렬 처리 시작 (대상: {len(resolved_articles)}개) ---")
         
+        if not resolved_articles: 
+            return []
+
+        print(f"--- 2단계: 기사 콘텐츠 병렬 처리 시작 (대상: {len(resolved_articles)}개) ---")
         processed_news = []
         max_workers = 2
+        chunk_size = len(resolved_articles) // max_workers + (1 if len(resolved_articles) % max_workers > 0 else 0)
+        article_batches = [resolved_articles[i:i + chunk_size] for i in range(0, len(resolved_articles), chunk_size)]
         
-        # 전체 기사를 max_workers 개수만큼의 묶음으로 나눕니다.
-        # 예: 27개 기사, max_workers=2 -> [14개 묶음], [13개 묶음]
-        chunk_size = len(resolved_articles) // max_workers
-        if len(resolved_articles) % max_workers > 0:
-            chunk_size += 1
-        
-        article_batches = [
-            resolved_articles[i:i + chunk_size]
-            for i in range(0, len(resolved_articles), chunk_size)
-        ]
-
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             future_to_batch = {executor.submit(process_article_content_worker, batch, driver_path): batch for batch in article_batches}
-    
             for future in as_completed(future_to_batch):
                 try:
                     results_from_batch = future.result()
@@ -1031,6 +858,7 @@ class NewsService:
 
         print(f"--- 2단계 완료: 총 {len(processed_news)}개 기사 처리 성공 ---\n")
         return processed_news
+
 
     def update_sent_links_log(self, news_list):
         links = [news['link'] for news in news_list]
@@ -1252,62 +1080,53 @@ def image_to_base64_string(filepath):
         print(f"❌ 이미지를 Base64로 변환하는 중 오류 발생: {e}")
         return None
 
-def main():
-    print("🚀 뉴스레터 자동 생성 프로세스를 시작합니다.")
+def run_daily_newsletter(config, driver_path):
+    """일간 뉴스레터 생성의 모든 과정을 처리하는 함수"""
+    print("🚀 일간 뉴스레터 생성을 시작합니다.")
     try:
-
-        # ✨ [핵심] 모든 병렬 작업 시작 전에 드라이버를 딱 한 번만 설치/준비합니다.
-        print("-> Chrome 드라이버를 준비합니다...")
-        try:
-            driver_path = ChromeDriverManager().install()
-            print(f"✅ 드라이버 준비 완료: {driver_path}")
-        except Exception as e:
-            print(f"🔥 치명적인 오류 발생: Chrome 드라이버를 준비할 수 없습니다. {e}")
-            return
-        config = Config()
-        # ✨ [개선] 메인 로직에서는 더 이상 scraper와 ai_service를 직접 생성하지 않습니다.
-        news_service = NewsService(config, None, None) 
+        # --- 1. 서비스 객체 초기화 ---
+        news_service = NewsService(config)
         email_service = EmailService(config)
         weather_service = WeatherService(config)
         risk_briefing_service = RiskBriefingService()
-
-
+        ai_service = AIService(config)
+        
+        today_str = get_kst_today_str()
         os.makedirs('archive', exist_ok=True)
         os.makedirs('images', exist_ok=True)
-        today_str = get_kst_today_str()
 
+        # --- 2. 보조 데이터 생성 (유가, 날씨, 리스크) ---
         price_indicators = get_price_indicators(config)
         weather_result = weather_service.create_dashboard_image(today_str)
+        price_chart_result = create_price_trend_chart(price_indicators.get("seven_day_data"), today_str) if price_indicators.get("seven_day_data") else None
         
-        price_chart_result = None
-        if price_indicators.get("seven_day_data"):
-            price_chart_result = create_price_trend_chart(price_indicators["seven_day_data"], today_str)
-
-
         risk_events = risk_briefing_service.generate_risk_events()
-        ai_service_main = AIService(config)
-        risk_briefing_md = ai_service_main.generate_risk_briefing(risk_events)
+        risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
         risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
 
-
+        # --- 3. 뉴스 데이터 수집 및 처리 ---
         previous_top_news = load_newsletter_history()
-        # ✨ [개선] news_service는 이제 ai_service를 직접 사용하지 않고, 독립적인 함수를 호출합니다.
-        all_news = news_service.get_fresh_news(driver_path)
-        if not all_news:
-            print("ℹ️ 발송할 새로운 뉴스가 없어 프로세스를 종료합니다.")
-            update_archive_index()
-            return
         
-        # ✨ AI 선별과 브리핑은 별도의 AIService 인스턴스를 통해 처리
-        top_news = ai_service_main.select_top_news(all_news, previous_top_news)
-
+        # ✨ [수정] 분리된 함수를 일간용 설정으로 순서대로 호출
+        candidate_articles = news_service.fetch_candidate_articles(
+            keywords=config.KEYWORD_GROUPS_DAILY, 
+            hours=config.NEWS_FETCH_HOURS_DAILY
+        )
+        all_news = news_service.process_articles(candidate_articles, driver_path)
+        
+        if not all_news:
+            print("ℹ️ 발송할 새로운 뉴스가 없습니다.")
+        
+        top_news = ai_service.select_top_news(all_news, previous_top_news, count=config.SELECT_NEWS_COUNT_DAILY)
+        
         if not top_news:
             print("ℹ️ AI가 뉴스를 선별하지 못했습니다.")
-            return
-        
-        ai_briefing_md = ai_service_main.generate_briefing(top_news)
+
+        ai_briefing_md = ai_service.generate_briefing(top_news, mode='daily')
         ai_briefing_html = markdown_to_html(ai_briefing_md)
         
+        # --- 4. 템플릿에 전달할 최종 데이터 준비 ---
+        title_text = "오늘의 화물/물류 뉴스"
         if price_chart_result: price_indicators['price_chart_b64'] = price_chart_result['base64']
         weather_dashboard_b64 = weather_result['base64'] if weather_result else None
         
@@ -1319,12 +1138,17 @@ def main():
             web_news_list.append(news_copy)
 
         context = {
-            "today_date": today_str, "ai_briefing": ai_briefing_html,
+            "title": title_text,
+            "today_date": today_str,
+            "ai_briefing": ai_briefing_html,
             "risk_briefing_html": risk_briefing_html,
-            "price_indicators": price_indicators, "news_list": web_news_list,
+            "price_indicators": price_indicators,
+            "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
             "has_weather_dashboard": True if weather_dashboard_b64 else False
         }
+        
+        # --- 5. HTML 생성 및 이메일 발송 ---
         web_html = render_html_template(context, target='web')
         archive_filepath = f"archive/{today_str}.html"
         with open(archive_filepath, 'w', encoding='utf-8') as f: f.write(web_html)
@@ -1335,7 +1159,7 @@ def main():
         
         context['news_list'] = top_news
         email_body = render_html_template(context, target='email')
-        email_subject = f"[{today_str}] 오늘의 화물/물류 뉴스"
+        email_subject = f"[{today_str}] {title_text}"
         
         images_to_embed = []
         if price_chart_result and price_chart_result.get('filepath'):
@@ -1348,127 +1172,142 @@ def main():
         
         email_service.send_email(email_subject, email_body, images_to_embed)
         
-        news_service.update_sent_links_log(top_news)
-        save_newsletter_history(top_news)
+        # --- 6. 상태 저장 및 마무리 ---
+        if top_news:
+            news_service.update_sent_links_log(top_news)
+            save_newsletter_history(top_news)
         update_archive_index()
 
-        print("\n🎉 모든 프로세스가 성공적으로 완료되었습니다.")
+        print("\n🎉 일간 뉴스레터 프로세스가 성공적으로 완료되었습니다.")
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"🔥 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+        print(f"🔥 일간 뉴스레터 생성 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
-def main_for_risk_briefing_test():
-    """뉴스 수집을 건너뛰고 '글로벌 물류 리스크 브리핑' 기능만 테스트하는 함수"""
-    print("🚀 물류 리스크 브리핑 기능 테스트를 시작합니다.")
+
+def run_weekly_newsletter(config, driver_path):
+    """주간 뉴스레터 생성의 모든 과정을 처리하는 함수"""
+    print("🚀 주간 뉴스레터 생성을 시작합니다.")
     try:
-        # 1. 필요한 서비스 객체들 생성
-        config = Config()
-        email_service = EmailService(config)
-        ai_service = AIService(config)
-        
-        # ✨ 테스트 대상인 RiskBriefingService 임포트 및 생성
-        from risk_briefing_service import RiskBriefingService
-        risk_briefing_service = RiskBriefingService()
-        
-        today_str = get_kst_today_str()
-
-        # 2. 리스크 이벤트 수집 및 AI 브리핑 생성 (테스트 핵심 로직)
-        risk_events = risk_briefing_service.generate_risk_events()
-        risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
-        risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else "<i>(AI 리스크 브리핑 생성에 실패했거나, 해당 기간에 리스크가 없습니다.)</i>"
-
-        # 3. 이메일 템플릿에 전달할 context 준비 (나머지는 빈 데이터)
-        context = {
-            "today_date": today_str,
-            "ai_briefing": "<i>(뉴스 브리핑은 테스트에서 생략됩니다.)</i>",
-            "risk_briefing_html": risk_briefing_html,
-            "price_indicators": {}, # 빈 데이터
-            "news_list": [], # 빈 리스트
-            "weather_dashboard_b64": None,
-            "has_weather_dashboard": False
-        }
-        
-        # 4. 이메일 본문 생성 및 발송
-        email_body = render_html_template(context, target='email')
-        email_subject = f"[{today_str}] 🗓️ 글로벌 물류 리스크 브리핑 기능 테스트"
-        
-        email_service.send_email(email_subject, email_body)
-        
-        print("\n🎉 리스크 브리핑 테스트 이메일 발송이 성공적으로 완료되었습니다.")
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
-
-def main_for_test():
-    """뉴스 수집을 건너뛰고 날씨/데이터 지표 기능만 테스트하는 함수"""
-    print("🚀 뉴스레터 기능 테스트를 시작합니다 (날씨 + 데이터 지표).")
-    try:
-        config = Config()
+        # --- 1. 서비스 객체 초기화 ---
+        news_service = NewsService(config)
         email_service = EmailService(config)
         weather_service = WeatherService(config)
-
+        risk_briefing_service = RiskBriefingService()
+        ai_service = AIService(config)
+        
+        week_str = get_kst_week_str()
         os.makedirs('archive', exist_ok=True)
         os.makedirs('images', exist_ok=True)
-        today_str = get_kst_today_str()
 
-        # --- 1. 데이터 및 이미지 생성 ---
+        # --- 2. 보조 데이터 생성 (유가, 날씨, 리스크) ---
         price_indicators = get_price_indicators(config)
-        weather_result = weather_service.create_dashboard_image(today_str)
+        weather_result = weather_service.create_dashboard_image(week_str)
+        price_chart_result = create_price_trend_chart(price_indicators.get("seven_day_data"), week_str) if price_indicators.get("seven_day_data") else None
         
-        price_chart_result = None
-        if price_indicators.get("seven_day_data"):
-            price_chart_result = create_price_trend_chart(price_indicators["seven_day_data"], today_str)
+        risk_events = risk_briefing_service.generate_risk_events()
+        risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
+        risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
 
-        # --- 2. 뉴스/AI 관련 부분은 테스트용 빈 데이터로 설정 ---
-        top_news = []
-        ai_briefing_html = "<i>(AI 브리핑 및 뉴스 목록은 테스트에서 생략됩니다.)</i>"
+        # --- 3. 뉴스 데이터 수집 및 처리 (주간용 설정 사용) ---
+        previous_top_news = load_newsletter_history(filepath='previous_weekly_newsletter.json')
         
-        # --- 3. 템플릿용 데이터 준비 ---
-        if price_chart_result:
-            price_indicators['price_chart_b64'] = price_chart_result['base64']
+        # ✨ [수정] 분리된 함수를 주간용 설정으로 순서대로 호출
+        candidate_articles = news_service.fetch_candidate_articles(
+            keywords=config.KEYWORD_GROUPS_WEEKLY, 
+            hours=config.NEWS_FETCH_HOURS_WEEKLY
+        )
+        all_news = news_service.process_articles(candidate_articles, driver_path)
         
+        top_news = ai_service.select_top_news(all_news, previous_top_news, count=config.SELECT_NEWS_COUNT_WEEKLY)
+        
+        if not top_news:
+            print("ℹ️ AI가 주간 뉴스를 선별하지 못했습니다. (또는 수집된 뉴스가 없습니다)")
+
+        ai_briefing_md = ai_service.generate_briefing(top_news, mode='weekly')
+        ai_briefing_html = markdown_to_html(ai_briefing_md)
+        
+        # --- 4. 템플릿에 전달할 최종 데이터 준비 ---
+        title_text = "주간 화물/물류 뉴스"
+        if price_chart_result: price_indicators['price_chart_b64'] = price_chart_result['base64']
         weather_dashboard_b64 = weather_result['base64'] if weather_result else None
         
+        web_news_list = []
+        for news in top_news:
+            news_copy = news.copy()
+            if news_copy.get('image_data'):
+                news_copy['image_src'] = f"data:image/jpeg;base64,{base64.b64encode(news_copy['image_data']).decode('utf-8')}"
+            web_news_list.append(news_copy)
+
         context = {
-            "today_date": today_str, "ai_briefing": ai_briefing_html,
-            "price_indicators": price_indicators, "news_list": top_news,
+            "title": title_text,
+            "today_date": week_str,
+            "ai_briefing": ai_briefing_html,
+            "risk_briefing_html": risk_briefing_html,
+            "price_indicators": price_indicators,
+            "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
             "has_weather_dashboard": True if weather_dashboard_b64 else False
         }
         
-        # --- 4. 웹/이메일용 HTML 생성 및 저장 ---
+        # --- 5. HTML 생성 및 이메일 발송 ---
         web_html = render_html_template(context, target='web')
-        email_body = render_html_template(context, target='email')
-        
-        archive_filepath = f"archive/{today_str}.html"
-        with open(archive_filepath, 'w', encoding='utf-8') as f:
-            f.write(web_html)
+        archive_filepath = f"archive/{week_str}.html"
+        with open(archive_filepath, 'w', encoding='utf-8') as f: f.write(web_html)
         print(f"✅ 웹페이지 버전을 '{archive_filepath}'에 저장했습니다.")
+
+        for i, news_item in enumerate(top_news):
+            if news_item.get('image_data'): news_item['image_cid'] = f'news_image_{i}'
         
-        # --- 5. 이메일 발송 ---
-        email_subject = f"[{today_str}] 📊 데이터 기능 테스트"
+        context['news_list'] = top_news
+        email_body = render_html_template(context, target='email')
+        email_subject = f"[{week_str}] {title_text} 요약"
+        
         images_to_embed = []
         if price_chart_result and price_chart_result.get('filepath'):
             images_to_embed.append({'path': price_chart_result['filepath'], 'cid': 'price_chart'})
         if weather_result and weather_result.get('filepath'):
             images_to_embed.append({'path': weather_result['filepath'], 'cid': 'weather_dashboard'})
-
+        for news_item in top_news:
+            if news_item.get('image_data') and news_item.get('image_cid'):
+                images_to_embed.append({'data': news_item['image_data'], 'cid': news_item['image_cid']})
+        
         email_service.send_email(email_subject, email_body, images_to_embed)
         
+        # --- 6. 상태 저장 및 마무리 ---
+        if top_news:
+            news_service.update_sent_links_log(top_news)
+            save_newsletter_history(top_news, filepath='previous_weekly_newsletter.json')
         update_archive_index()
-        
-        print("\n🎉 테스트 이메일 발송이 성공적으로 완료되었습니다.")
 
+        print("\n🎉 주간 뉴스레터 프로세스가 성공적으로 완료되었습니다.")
     except Exception as e:
-        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"🔥 주간 뉴스레터 생성 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+
+
+def main():
+    """실행 모드에 따라 적절한 뉴스레터 생성 함수를 호출하는 컨트롤러"""
+    print("-> Chrome 드라이버를 준비합니다...")
+    try:
+        driver_path = ChromeDriverManager().install()
+        print(f"✅ 드라이버 준비 완료: {driver_path}")
+    except Exception as e:
+        print(f"🔥 치명적인 오류 발생: Chrome 드라이버를 준비할 수 없습니다. {e}")
+        return
+
+    config = Config()
+    
+    if config.EXECUTION_MODE == 'weekly':
+        run_weekly_newsletter(config, driver_path)
+    elif config.EXECUTION_MODE == 'daily':
+        run_daily_newsletter(config, driver_path)
+    else:
+        print(f"❌ 알 수 없는 실행 모드입니다: '{config.EXECUTION_MODE}'. 'daily' 또는 'weekly'로 설정해주세요.")
+
+
 
 if __name__ == "__main__":
      main()
-     #main_for_test()
-     #main_for_risk_briefing_test()
      
-
-
