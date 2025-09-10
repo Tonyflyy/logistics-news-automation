@@ -25,39 +25,23 @@ jobs:
     - name: Cache dependencies
       uses: actions/cache@v4
       with:
-        path: ~/.cache/pip  # 캐시할 폴더 경로 (pip의 다운로드 폴더)
-        # requirements.txt 파일 내용이 바뀔 때만 캐시를 새로 만듦
+        path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
-        
 
     - name: Install dependencies
       run: |
-        echo "--- Checking requirements.txt content ---"
-        cat requirements.txt
-        echo "---------------------------------------"
-       
         python -m pip install --upgrade pip
-       
-        # --- ⬇️⬇️⬇️ [수정] pip 캐시 삭제 명령어 추가 ⬇️⬇️⬇️ ---
-        pip cache purge
-        # --- ⬆️⬆️⬆️ [수정] 여기까지 ⬆️⬆️⬆️ ---
-        pip install -r requirements.txt -v  # <-- [추가] verbose 로그로 의존성 해결 과정 상세 출력. 반복 에러 분석에 사용.
+        # ✨ [수정] 불필요한 pip cache purge 명령어 제거
+        pip install -r requirements.txt
+
     - name: Install Korean font (Nanum Gothic)
       run: |
         sudo apt-get update
-        sudo apt-get install -y fonts-nanum  # NanumGothic 폰트 설치
-        sudo fc-cache -fv  # 폰트 캐시 갱신
-        if fc-list | grep -i "NanumGothic"; then
-          echo "NanumGothic 설치 성공"
-        else
-          echo "NanumGothic 설치 실패"
-        fi  # 설치 성공 여부 로그 출력
-    - name: Create credential files from secrets
-      run: |
-        echo "${{ secrets.GMAIL_CREDENTIALS }}" > credentials.json
-        echo "${{ secrets.GMAIL_TOKEN }}" | base64 --decode > token.json
+        sudo apt-get install -y fonts-nanum
+        sudo fc-cache -fv
+        fc-list | grep -i "NanumGothic" || echo "NanumGothic 설치 확인 실패"
 
     - name: Run script
       env:
@@ -66,31 +50,16 @@ jobs:
         RECIPIENT_LIST: ${{ secrets.RECIPIENT_LIST }}
         OPINET_API_KEY: ${{ secrets.OPINET_API_KEY }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
       run: python news_collector.py
-
-    - name: Check generated files
-      run: |
-        echo "--- Listing files in archive directory ---"
-        ls -R archive
     
-    # 6. 변경된 파일들(기록, 아카이브)을 자동으로 저장소에 커밋
+    # ✨ [수정] 자동 커밋 전, 원격 저장소의 최신 변경사항을 먼저 받아와서 충돌을 방지합니다.
+    - name: Pull latest changes
+      run: git pull
+
+    # ✨ [수정] 자동 커밋 로직을 git-auto-commit-action 하나로 통일합니다.
     - name: Commit and push updated files
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: "chore: Update newsletter history and archive"
-        # 저장할 파일들을 정확히 지정
-        file_pattern: "sent_links_logistics.txt previous_newsletter.json archive"
-      
-
-    - name: Configure Git
-      run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-    - name: Commit and push changes
-      run: |
-        git pull
-        git add .
-        git diff-index --quiet HEAD || (git commit -m "Update sent links history" && git push)
+        file_pattern: "sent_links_logistics.txt previous_newsletter.json previous_weekly_newsletter.json archive"
