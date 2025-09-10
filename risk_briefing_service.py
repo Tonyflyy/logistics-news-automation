@@ -14,18 +14,12 @@ class RiskBriefingService:
         self.country_names = {"KR": "한국", "CN": "중국", "US": "미국", "VN": "베트남", "DE": "독일"}
 
     def _get_holidays(self, start_date, end_date):
-        """
-        (개선) 지정된 기간 내의 공휴일 정보를 수집하고, 한글로 번역합니다.
-        해외 공휴일은 영어로 받아와서 번역 맵을 사용합니다.
-        """
         holiday_events = []
-        
         total_days = (end_date - start_date).days + 1
         date_range = [start_date + timedelta(days=i) for i in range(total_days)]
 
         for country_code in self.countries:
             try:
-                # ✨ [핵심 수정] 한국은 'ko', 그 외 모든 국가는 'en-US'로 언어를 지정합니다.
                 if country_code == 'KR':
                     country_holidays = holidays.country_holidays(country_code, language='ko')
                 else:
@@ -34,7 +28,10 @@ class RiskBriefingService:
                 for single_date in date_range:
                     if single_date in country_holidays:
                         holiday_name = country_holidays.get(single_date)
-                        translated_name = self.config.HOLIDAY_NAME_TRANSLATIONS.get(holiday_name, holiday_name)
+                        
+                        # ✨ [핵심 수정] '국가코드:영어이름' 형태의 고유 키를 만들어 조회
+                        lookup_key = f"{country_code}:{holiday_name}"
+                        translated_name = self.config.HOLIDAY_NAME_TRANSLATIONS.get(lookup_key, holiday_name)
                         
                         holiday_events.append({
                             "date": single_date,
@@ -128,4 +125,5 @@ class RiskBriefingService:
         
         print(f"✅ {len(sorted_events)}개의 물류 리스크 이벤트를 발견했습니다.")
         return sorted_events
+
 
