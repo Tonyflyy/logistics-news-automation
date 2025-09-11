@@ -62,4 +62,5 @@ jobs:
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: "chore: Update newsletter history and archive"
-        file_pattern: "sent_links_logistics.txt previous_newsletter.json previous_weekly_newsletter.json archive"
+        # ✨ [수정] previous_*.json을 사용하여 존재하는 히스토리 파일만 커밋하도록 변경
+        file_pattern: "sent_links_logistics.txt previous_*.json archive"
