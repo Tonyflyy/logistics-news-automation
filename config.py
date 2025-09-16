@@ -18,7 +18,9 @@ class Config:
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     OPINET_API_KEY = os.getenv('OPINET_API_KEY')
     GPT_MODEL='gpt-5'
-    RECIPIENT_LIST = [email.strip() for email in os.getenv('RECIPIENT_LIST', '').split(',')]
+    
+    DAILY_RECIPIENT_LIST = [email.strip() for email in os.getenv('DAILY_RECIPIENT_LIST', '').split(',')]
+    WEEKLY_RECIPIENT_LIST = [email.strip() for email in os.getenv('WEEKLY_RECIPIENT_LIST', '').split(',')]
     SENDER_EMAIL = "zzzfbwnsgh@gmail.com" # 실제 발신자 이메일로 변경 필요
     SENDER_NAME = "YLP 뉴스레터"
     
@@ -27,12 +29,13 @@ class Config:
     SENT_LINKS_FILE = 'sent_links_logistics.txt'
     TOKEN_FILE = 'token.json'
     CREDENTIALS_FILE = 'credentials.json'
+    WEEKLY_CANDIDATES_FILE = 'weekly_candidates.json'
 
     # --- 스크래핑 설정 ---
     MIN_IMAGE_WIDTH = 300
     MIN_IMAGE_HEIGHT = 150
     DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News'
-    MAX_ARTICLES_TO_PROCESS = 300 # 수집할 최대 기사 수
+    MAX_ARTICLES_TO_PROCESS = 500 # 수집할 최대 기사 수
     
      # ✨ [분리] 뉴스 수집 기간 설정
     NEWS_FETCH_HOURS_DAILY = 24
@@ -189,4 +192,3 @@ class Config:
         "DE:Christmas Day": "크리스마스",
         "DE:Second Day of Christmas": "크리스마스 연휴",
     }
-
