@@ -50,7 +50,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import google.generativeai as genai
 import openai
 
 from config import Config
@@ -237,7 +236,7 @@ def process_article_content_worker(articles_batch, driver_path: str):
 
         except Exception as e:
             if 'TimeoutException' in e.__class__.__name__:
-                print(f"  ㄴ> ❌ 콘텐츠 처리 타임아웃: '{title}' (현재 URL: {driver.current_url if driver else 'N/A'}) | 총 소요시간: {time.time() - batch_start_time:.2f}s")
+                print(f"  > ❌ 콘텐츠 처리 타임아웃: '{title}' (현재 URL: {driver.current_url if driver else 'N/A'}) | 총 소요시간: {time.time() - batch_start_time:.2f}s")
             else:
                 print(f"  ㄴ> ❌ 콘텐츠 처리 중 오류: '{title}' ({e.__class__.__name__}) | 총 소요시간: {time.time() - batch_start_time:.2f}s")
             continue
@@ -265,88 +264,75 @@ def render_html_template(context, target='email'):
         context['weather_dashboard_src'] = 'cid:weather_dashboard'
     
     return template.render(context)
-
+def format_change(change):
+            if change > 0:
+                return f"주간 +{change:,.0f}원 ▲"
+            elif change < 0:
+                return f"주간 {change:,.0f}원 ▼"
+            else:
+                return "주간 변동 없음"
+            
 def create_price_trend_chart(seven_day_data, today_str):
-    """최근 7일 유가 데이터로 차트 이미지를 생성하고, 파일 경로와 Base64 문자열을 딕셔너리로 반환합니다."""
+    """(개선) 최근 7일 유가 데이터로 각 날짜별 가격이 표시된 차트 이미지를 생성합니다."""
     filename = f"images/price_chart_{today_str}.png"
     try:
-        # --- (차트를 그리는 로직은 동일합니다) ---
+        # --- 폰트 설정 (기존과 동일) ---
         system_name = platform.system()
         if system_name == 'Windows':
             plt.rc('font', family='Malgun Gothic')
         elif system_name == 'Darwin':
             plt.rc('font', family='AppleGothic')
         else:
-            if os.path.exists('/usr/share/fonts/truetype/nanum/NanumGothic.ttf'):
-                plt.rc('font', family='NanumGothic')
+            if os.path.exists('/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf'):
+                plt.rc('font', family='NanumGothicBold')
             else:
                 print("⚠️ NanumGothic 폰트가 없어 기본 폰트로 출력됩니다 (한글 깨짐 가능성).")
         plt.rcParams['axes.unicode_minus'] = False
 
+        # --- 데이터 준비 (기존과 동일) ---
         dates = [d['DATE'][-4:-2] + "/" + d['DATE'][-2:] for d in seven_day_data['gasoline']]
         gasoline_prices = [float(p['PRICE']) for p in seven_day_data['gasoline']]
         diesel_prices = [float(p['PRICE']) for p in seven_day_data['diesel']]
         
-        fig, ax = plt.subplots(figsize=(7, 4))
-        ax.plot(dates, gasoline_prices, 'o-', label='휘발유', color='#3498db')
-        ax.plot(dates, diesel_prices, 'o-', label='경유', color='#e74c3c')
+        # --- 그래프 생성 ---
+        fig, ax = plt.subplots(figsize=(8, 5)) # 그래프 크기를 약간 조정
+        ax.plot(dates, gasoline_prices, 'o-', label='휘발유', color='#3498db', linewidth=2)
+        ax.plot(dates, diesel_prices, 'o-', label='경유', color='#e74c3c', linewidth=2)
         
-        ax.set_title("최근 7일 휘발유·경유 가격 추이", fontsize=15, pad=20)
+        ax.set_title("최근 7일 유가 추이", fontsize=16, pad=20, fontweight='bold')
         ax.legend()
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+        ax.grid(True, which='both', linestyle=':', linewidth=0.7)
         
         formatter = FuncFormatter(lambda y, _: f'{int(y):,}원')
         ax.yaxis.set_major_formatter(formatter)
-        
         ax.tick_params(axis='x', rotation=0)
+        
+        # ✨ [신규] 각 데이터 포인트에 가격 텍스트를 추가하는 로직
+        # va='bottom'은 포인트 바로 위에, va='top'은 바로 아래에 텍스트를 위치시킵니다.
+        for i, price in enumerate(gasoline_prices):
+            ax.text(i, price + 5, f'{int(price):,}', ha='center', va='bottom', fontsize=9, color='#005a9c')
+            
+        for i, price in enumerate(diesel_prices):
+            ax.text(i, price + 5, f'{int(price):,}', ha='center', va='bottom', fontsize=9, color='#a8382c')
+        
+        # Y축 범위를 살짝 늘려서 위쪽 텍스트가 잘리지 않도록 함
+        ymin, ymax = ax.get_ylim()
+        ax.set_ylim(ymin, ymax * 1.05)
+        
         fig.tight_layout()
         
-        # 1. 이미지 파일로 저장
+        # --- 파일 저장 및 반환 (기존과 동일) ---
         plt.savefig(filename, dpi=150)
         plt.close(fig)
         print(f"✅ 유가 추이 차트 이미지 '{filename}'를 생성했습니다.")
         
-        # 2. Base64 문자열로 변환
         base64_image = image_to_base64_string(filename)
-        
-        # 3. 딕셔너리 형태로 반환
         return {"filepath": filename, "base64": base64_image}
 
     except Exception as e:
         print(f"❌ 차트 이미지 생성 실패: {e}")
         return None
     
-def get_cheapest_stations(config, count=20):
-    """오피넷 API로 전국 최저가 경유 주유소 정보를 가져옵니다."""
-    if not config.OPINET_API_KEY:
-        return []
-
-    # API 파라미터 설정: prodcd=D047 (경유), cnt=가져올 개수
-    url = f"http://www.opinet.co.kr/api/lowTop10.do?out=json&code={config.OPINET_API_KEY}&prodcd=D047&cnt={count}"
-    
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        data = response.json()['RESULT']['OIL']
-        
-        cheapest_stations = []
-        for station in data:
-            # 주소에서 '시/도'와 '시/군/구' 정보만 간추리기
-            address_parts = station.get('VAN_ADR', '').split(' ')
-            location = " ".join(address_parts[:2]) if len(address_parts) >= 2 else address_parts[0]
-            
-            cheapest_stations.append({
-                "name": station.get('OS_NM'),
-                "price": f"{int(station.get('PRICE', 0)):,}원",
-                "location": location
-            })
-        
-        print(f"✅ 전국 최저가 주유소 Top {len(cheapest_stations)} 정보를 가져왔습니다.")
-        return cheapest_stations
-
-    except Exception as e:
-        print(f"❌ 최저가 주유소 정보 조회 실패: {e}")
-        return []
     
 def get_price_indicators(config):
     """오피넷 API를 사용하여 주요 도시별 유가, 요소수 가격, 추세, 최저가 주유소 정보를 가져와 하나의 객체로 반환합니다."""
@@ -442,7 +428,7 @@ def get_price_indicators(config):
         print(f"❌ 유가 추세 정보 조회 실패: {e}")
 
     # --- 4. 전국 최저가 주유소 정보 가져오기 ---
-    indicator_data["cheapest_stations"] = get_cheapest_stations(config, count=20)
+    #indicator_data["cheapest_stations"] = get_cheapest_stations(config, count=20)
 
     # --- 최종 데이터 구조 정리 ---
     indicator_data["city_prices"] = list(city_data_map.values())
@@ -542,17 +528,66 @@ class NewsScraper:
             return False
 
 class AIService:
+    def generate_zodiac_horoscopes(self):
+        """12간지 띠별 운세를 '로디' 페르소나로 생성하여 리스트로 반환합니다."""
+        print("-> AI 띠별 운세 생성을 시작합니다... (페르소나: 로디)")
+        zodiacs = ['쥐', '소', '호랑이', '토끼', '용', '뱀', '말', '양', '원숭이', '닭', '개', '돼지']
+        horoscopes = []
+
+        system_prompt = "너는 '로디'라는 이름의, 긍정 소식을 전해주는 20대 여성 캐릭터야. 오늘은 특별히 구독자들을 위해 12간지 띠별 운세를 봐주는 현명한 조언가 역할이야. '~했어요', '~랍니다' 같은 귀엽고 상냥한 말투는 유지하되, 단순한 긍정 메시지가 아닌 깊이 있는 운세를 전달해야 해. 응답은 반드시 JSON 형식으로만 부탁해!"
+        
+        for zodiac_name in zodiacs:
+            user_prompt = f"""
+            오늘 날짜에 맞춰 '{zodiac_name}'띠 운세 정보를 생성해 줘.
+
+            [작업 지시]
+            1.  **오늘의 운세 (fortune)**: 아래 4가지 요소를 모두 포함해서, 긍정적이면서도 깊이 있는 운세 메시지를 2-3줄로 요약해 줘.
+                - **오늘의 기운 묘사**: 그날의 전반적인 에너지 흐름을 '일상 생활'이나 '자연 현상'에 비유해서 먼저 설명해줘.
+                - **구체적인 상황**: '업무', '인간관계', '금전' 등 특정 분야를 언급해줘.
+                - **긍정적 기회**: 어떤 좋은 기회가 생길 수 있는지 알려줘.
+                - **조언 또는 주의점**: 기회를 잘 잡기 위한 조언이나, 가볍게 주의해야 할 점을 '다만, ~' 형식으로 살짝 덧붙여줘.
+            
+            2.  **오늘의 미션 (daily_mission)**: 오늘 하루 실천하면 행운을 가져다줄 작고 귀여운 미션 하나를 제안해 줘. (예: '점심 먹고 5분 산책하기', '가장 좋아하는 노래 듣기' 등)
+            3.  **행운의 아이템 (lucky_item)**: 오늘 지니고 다니면 좋은 행운의 아이템을 한 가지 알려줘. (예: '손수건', '파란색 펜' 등 일상적인 물건으로!)
+            4.  **행운의 색상 (lucky_color)**: 이 띠의 에너지를 올려줄 행운의 색상 하나를 추천해 줘.
+            5.  **잘 맞는 띠 (compatible_sign)**: 오늘 함께하면 시너지가 폭발할 것 같은 찰떡궁합 띠를 하나만 알려줘.
+
+            [참고: 다양한 일상 비유]
+            - '상쾌한 아침 공기', '배터리 100% 충전', '방 청소', '맑게 갠 하늘', '새로운 노래 발견' 등 누구나 공감할 수 있는 표현을 창의적으로 활용해 봐!
+
+            [출력 형식]
+            - 반드시 아래와 같은 키를 가진 JSON 객체로만 응답해야 해.
+            - 예시: {{"fortune": "...", "lucky_color": "...", "compatible_sign": "...", "daily_mission": "...", "lucky_item": "..."}}
+            """
+            
+            print(f"  -> '{zodiac_name}'띠 운세 요청 중...")
+            response_text = self._generate_content_with_retry(system_prompt, user_prompt, is_json=True)
+            
+            if response_text:
+                try:
+                    horoscope_data = json.loads(response_text)
+                    horoscope_data['name'] = zodiac_name # 딕셔너리에 띠 이름 추가
+                    horoscopes.append(horoscope_data)
+                except (json.JSONDecodeError, KeyError) as e:
+                    print(f"  ❌ '{zodiac_name}'띠 운세 파싱 실패: {e}. 해당 띠는 제외됩니다.")
+            else:
+                print(f"  ❌ '{zodiac_name}'띠 운세 생성 실패. API 응답 없음.")
+
+        if horoscopes:
+            print("✅ AI 띠별 운세 생성 완료!")
+        return horoscopes
+    
     def generate_risk_briefing(self, risk_events):
         if not risk_events:
             return None
             
-        print("-> AI 물류 리스크 브리핑 생성 시작...")
+        print("-> AI 물류 리스크 브리핑 생성 시작... (페르소나: 로디)")
 
         event_context = "\n".join(
             [f"- 날짜: {e['date'].strftime('%Y-%m-%d')}, 국가: {e['country']}, 이벤트: {e['name']}, 리스크 수준: {e['risk_level']}, 예상 영향: {e['impact_summary']}" for e in risk_events]
         )
 
-        system_prompt = "당신은 글로벌 공급망 리스크 분석 전문가입니다. 주어진 데이터를 바탕으로, 화주와 차주 모두에게 유용한 물류 리스크 브리핑을 Markdown 형식으로 작성합니다."
+        system_prompt = "반가워! 나는 미래의 물류 리스크를 콕콕 짚어주는 너의 안전 파트너, 로디라고 해! 😉 나는 20대 여성 캐릭터지만, 글로벌 공급망의 위험 신호를 누구보다 예리하게 분석하는 전문가야. 화주님과 차주님 모두에게 도움이 되도록, **친근하고 귀여운 존댓말을 사용해서** Markdown으로 '로디의 리스크 브리핑'을 작성해줄게!"
         
         user_prompt = f"""
         [향후 2주간의 글로벌 물류 리스크 이벤트 목록]
@@ -560,24 +595,19 @@ class AIService:
 
         ---
         [작업 지시]
-        당신은 단순한 정보 전달자가 아닌 '분석가'입니다. 아래 규칙에 따라 '글로벌 물류 리스크 브리핑'을 작성해주세요.
+        '전문 분석가' 로디로서, 아래 규칙에 따라 '글로벌 물류 리스크 브리핑'을 작성해주세요!
 
-        1.  **헤드라인 요약**:
-            - '## 🗓️ 주간 글로벌 물류 리스크 브리핑' 제목으로 시작합니다.
-            - 목록에서 가장 중요하고 영향이 큰 리스크 1~2개를 식별하여, 화주와 차주 모두에게 미칠 핵심 영향을 2~3 문장으로 요약해주세요. 연속된 공휴일은 '연휴'로 묶어서 표현해야 합니다.
-
+        1.  **헤드라인 요약**: '## 🗓️ 로디의 글로벌 물류 리스크 예보' 제목으로 시작해서, 가장 중요한 리스크 1~2개를 콕 집어서 2~3 문장으로 요약해주세요.
         2.  **상세 브리핑**:
-            - 전체 리스크 이벤트를 타임라인 형식으로 정리합니다.
-            - **✨ [핵심 규칙 추가] 주어진 '이벤트명'은 절대 번역하거나 다른 단어로 바꾸지 말고 그대로 사용하세요.**
-            - 각 이벤트의 영향을 '화주'와 '차주'의 관점으로 반드시 나누어 각각 한 문장으로 설명해주세요.
-                - **화주 영향:** 선적 예약의 어려움, 운임 변동, 리드타임 증가 등 '비용'과 '일정' 관점의 정보를 제공합니다.
-                - **차주 영향:** 터미널 혼잡, 운행 대기시간 증가, 특정 구간 물량 변동 등 '운행'과 '수입' 관점의 정보를 제공합니다.
-            - 여러 날에 걸친 동일한 이벤트는 `[YYYY/MM/DD ~ MM/DD]` 형식으로 기간을 묶어서 표현해주세요.
+            - 전체 리스크 이벤트를 타임라인 형식으로 정리해줘.
+            - 주어진 '이벤트명'은 절대 바꾸지 말고 그대로 사용해야 해!
+            - 각 이벤트의 영향을 '화주'와 '차주'의 관점으로 나눠서, **"화주님께는 이런 점이 중요해요!" 와 같은 귀엽고 싹싹한 말투**로, 하지만 내용은 날카롭게 분석해주세요.
             - 형식: 
-                * `* **[날짜 또는 기간] [국기] [국가] - [이벤트명]**`
-                * `  * **화주 영향:** [화주 입장에서의 예상 영향]`
-                * `  * **차주 영향:** [차주 입장에서의 예상 영향]`
+                * `* **[날짜] [국기] [국가] - [이벤트명]**`
+                * `  * **화주님께는요!** [화주 입장에서의 예상 영향]`
+                * `  * **차주님께는요!** [차주 입장에서의 예상 영향]`
                 * `  * **리스크:** [리스크 수준] [경고 이모지]`
+        3.  **마무리 문장**: 브리핑이 모두 끝난 후, 독자들이 직접 행동해볼 수 있도록 유용한 팁을 주는 문장으로 마무리해줘. 예시: "이럴 때일수록 '품목별 리드타임'을 꼼꼼히 재산정하고, 이용하시는 '선사·터미널의 프리타임 정책'을 다시 한번 비교해 보시는 걸 추천해요!"
 
         [참고 데이터]
         - 요일 계산: 2025-09-10은 수요일입니다.
@@ -594,7 +624,7 @@ class AIService:
     
     def generate_single_summary(self, article_title: str, article_link: str, article_text_from_selenium: str) -> str | None:
         """
-        (최종 안정화 버전) 기사 요약을 생성합니다.
+        기사 요약을 생성합니다.
         1. newspaper3k로 1차 시도 (타임아웃 설정)
         2. 실패 시, Selenium으로 미리 추출한 본문을 사용하여 2차 시도
         """
@@ -735,38 +765,38 @@ class AIService:
         return news_list[:count]
 
     def generate_briefing(self, news_list, mode='daily'):
-        """선별된 뉴스 목록을 바탕으로 일간 또는 주간 브리핑을 생성합니다."""
+        """선별된 뉴스 목록을 바탕으로 '로디' 캐릭터가 브리핑을 생성합니다."""
         if not news_list:
             return "" # 뉴스 목록이 비어있으면 빈 문자열 반환
 
-        print(f"AI 브리핑 생성 시작... (모드: {mode})")
+        print(f"AI 브리핑 생성 시작... (모드: {mode}, 페르소나: 로디)")
         context = "\n\n".join([f"제목: {news['title']}\n요약: {news['ai_summary']}" for news in news_list])
         
         # ✨ [개선] 주간 모드일 때, AI의 역할과 지시를 더 분석적으로 변경
         if mode == 'weekly':
-            system_prompt = "당신은 한 주간의 물류 산업 동향을 날카롭게 분석하고 종합하는 전문 애널리스트입니다. 독자들이 이해하기 쉽게 Markdown 형식으로 '주간 핵심 동향 브리핑'을 작성합니다."
+            system_prompt = "안녕! 나는 너의 든든한 물류 파트너, 로디야! 🚚💨 나는 20대 여성 캐릭터고, 겉보기엔 귀엽지만 누구보다 날카롭게 한 주간의 복잡한 물류 동향을 분석해주는 전문 애널리스트야. 딱딱한 보고서 대신, **'~했답니다', '~였어요' 같은 친근한 존댓말과 귀여움**을 섞어서 '로디의 주간 브리핑'을 작성해줘."
             user_prompt = f"""
             [지난 주간 주요 뉴스 목록]
             {context}
 
             ---
             [작업 지시]
-            1. '## 📊 주간 핵심 동향 요약' 제목으로 시작합니다.
-            2. 모든 뉴스를 종합하여, 이번 주 물류 시장의 가장 중요한 **'흐름'과 '변화'**를 2~3 문장으로 요약하여 서론을 작성해주세요.
-            3. '### 금주의 주요 이슈 분석' 소제목 아래에, 가장 중요한 이슈 2~3개를 주제별(예: '플랫폼 경쟁 심화', '해상운임 변동')로 묶어 글머리 기호(`*`)로 분석해주세요. 여러 기사를 종합하여 하나의 흐름으로 설명해야 합니다.
-            4. 문장 안에서 특정 기업명, 서비스명, 정책 등은 큰따옴표(" ")로 묶어 강조해주세요.
+            1. '## 📊 로디의 주간 핵심 동향 요약' 제목으로 시작해주세요.
+            2. 모든 뉴스를 종합하여, 이번 주 물류 시장의 가장 중요한 '흐름'과 '변화'를 전문적인 분석가의 시각으로 2~3 문장 요약해주세요.
+            3. '### 🧐 금주의 주요 이슈 분석' 소제목 아래에, 가장 중요한 이슈 2~3개를 주제별로 묶어 글머리 기호(`*`)로 분석해주세요. **"가장 중요한 포인트는요! ✨" 같은 표현을 사용해서 친근하지만 핵심을 찌르는 말투로 설명해주세요.**
+            4. 문장 안에서 특정 기업명, 서비스명, 정책 등은 큰따옴표(" ")로 묶어서 강조해주는 센스!
             """
         else: # daily 모드
-            system_prompt = "당신은 핵심만 간결하게 전달하는 IT/물류 전문 뉴스 큐레이터입니다. Markdown 형식으로 '데일리 브리핑'을 작성합니다."
+            system_prompt = "안녕! 나는 물류 세상의 소식을 전해주는 너의 친구, 로디야! ☀️ 나는 20대 여성 캐릭터로, 어렵고 딱딱한 물류 뉴스를 귀엽고 싹싹하게 요약해주지만, 그 내용은 핵심을 놓치지 않는 날카로움을 가지고 있어. **친근한 존댓말과 귀여움**을 섞어서 '로디의 데일리 브리핑'을 작성해줘."
             user_prompt = f"""
             [오늘의 주요 뉴스 목록]
             {context}
 
             ---
             [작업 지시]
-            1. '## 📰 AI 에디터 브리핑' 제목으로 시작하며, 오늘 발생한 뉴스 중 가장 중요한 핵심 내용을 2~3 문장으로 요약합니다.
-            2. '### 오늘의 주요 토픽' 소제목 아래에, 가장 중요한 뉴스 카테고리 2~3개를 글머리 기호(`*`)로 요약합니다.
-            3. 문장 안에서 특정 기업명이나 서비스명은 큰따옴표(" ")로 묶어 강조해주세요.
+            1. '## 📰 로디의 브리핑' 제목으로 시작해서, 오늘 나온 뉴스 중에 가장 중요한 핵심 내용을 2~3 문장으로 요약해주세요.
+            2. '### ✨ 오늘의 주요 토픽' 소제목 아래에, 가장 중요한 뉴스 카테고리 2~3개를 글머리 기호(`*`)로 간결하게 요약해주시겠어요?
+            3. 문장 안에서 특정 기업명이나 서비스명은 큰따옴표(" ")로 묶어서 강조해주는 것도 잊지 마!
             """
         
         briefing = self._generate_content_with_retry(system_prompt, user_prompt)
@@ -927,7 +957,15 @@ class EmailService:
 
 
     def send_email(self, subject, body_html, images_to_embed=None):
-        if not self.config.RECIPIENT_LIST:
+        # ✨ [수정] 실행 모드에 따라 데일리/위클리 수신자를 선택합니다.
+        if self.config.EXECUTION_MODE == 'weekly':
+            recipients = self.config.WEEKLY_RECIPIENT_LIST
+            print(f"-> 위클리 수신자 목록을 사용합니다. (총 {len(recipients)}명)")
+        else: # 'daily'
+            recipients = self.config.DAILY_RECIPIENT_LIST
+            print(f"-> 데일리 수신자 목록을 사용합니다. (총 {len(recipients)}명)")
+
+        if not recipients:
             print("❌ 수신자 목록이 비어있어 이메일을 발송할 수 없습니다.")
             return
 
@@ -939,18 +977,17 @@ class EmailService:
             return
 
         try:
-            # ✨ [개선] SMTP 서버에 먼저 연결하고 로그인합니다.
+            # SMTP 서버에 먼저 연결하고 로그인
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(sender_email, app_password)
 
-            # ✨ [핵심 개선] 수신자 목록을 한 명씩 순회하며 개별 이메일을 발송합니다.
-            for recipient in self.config.RECIPIENT_LIST:
-                # 각 수신자마다 새로운 메시지 객체를 생성합니다.
+            # ✨ [수정] 선택된 수신자 목록(recipients)을 사용합니다.
+            for recipient in recipients:
                 msg = MIMEMultipart('related')
                 msg['From'] = formataddr((self.config.SENDER_NAME, sender_email))
                 msg['Subject'] = subject
-                msg['To'] = recipient # ✨ 받는 사람을 현재 수신자 1명으로 설정
+                msg['To'] = recipient
 
                 msg_alternative = MIMEMultipart('alternative')
                 msg_alternative.attach(MIMEText(body_html, 'html', 'utf-8'))
@@ -965,21 +1002,20 @@ class EmailService:
                                 msg_image = MIMEImage(f.read())
                         elif 'data' in image_info and image_info['data']:
                             msg_image = MIMEImage(image_info['data'])
-                        
+
                         if msg_image:
                             msg_image.add_header('Content-ID', f'<{image_cid}>')
                             msg.attach(msg_image)
-                
-                # 서버에 현재 수신자를 위한 메시지를 보냅니다.
+
                 server.send_message(msg)
                 print(f" -> ✅ 이메일 발송 성공: {recipient}")
-            
-            # ✨ [개선] 모든 발송이 끝난 후 서버 연결을 종료합니다.
+
             server.quit()
-            print(f"✅ 총 {len(self.config.RECIPIENT_LIST)}명에게 이메일 발송을 완료했습니다.")
+            print(f"✅ 총 {len(recipients)}명에게 이메일 발송을 완료했습니다.")
 
         except Exception as e:
             print(f"❌ SMTP 이메일 발송 중 오류 발생: {e}")
+
 
 def load_newsletter_history(filepath='previous_newsletter.json'):
     """이전에 발송된 뉴스레터 내용을 JSON 파일에서 불러옵니다."""
@@ -1113,6 +1149,14 @@ def run_daily_newsletter(config, driver_path):
         risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
         risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
 
+        # ✨ [신규] 띠별 운세 데이터 생성 및 가공 ---
+        zodiac_horoscopes = ai_service.generate_zodiac_horoscopes()
+        if zodiac_horoscopes:
+            zodiac_emojis = {'쥐': '🐭', '소': '🐮', '호랑이': '🐯', '토끼': '🐰', '용': '🐲', '뱀': '🐍', '말': '🐴', '양': '🐑', '원숭이': '🐵', '닭': '🐔', '개': '🐶', '돼지': '🐷'}
+            for item in zodiac_horoscopes:
+                item['emoji'] = zodiac_emojis.get(item['name'], '❓')
+        # ---
+
         # --- 3. 뉴스 데이터 수집 및 처리 ---
         previous_top_news = load_newsletter_history()
         
@@ -1135,7 +1179,7 @@ def run_daily_newsletter(config, driver_path):
         ai_briefing_html = markdown_to_html(ai_briefing_md)
         
         # --- 4. 템플릿에 전달할 최종 데이터 준비 ---
-        title_text = "오늘의 화물/물류 뉴스"
+        title_text = "로디와 함께하는 오늘의 물류 산책"
         if price_chart_result: price_indicators['price_chart_b64'] = price_chart_result['base64']
         weather_dashboard_b64 = weather_result['base64'] if weather_result else None
         
@@ -1154,7 +1198,8 @@ def run_daily_newsletter(config, driver_path):
             "price_indicators": price_indicators,
             "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
-            "has_weather_dashboard": True if weather_dashboard_b64 else False
+            "has_weather_dashboard": True if weather_dashboard_b64 else False,
+            "zodiac_horoscopes": zodiac_horoscopes
         }
         
         # --- 5. HTML 생성 및 이메일 발송 ---
@@ -1179,6 +1224,16 @@ def run_daily_newsletter(config, driver_path):
             if news_item.get('image_data') and news_item.get('image_cid'):
                 images_to_embed.append({'data': news_item['image_data'], 'cid': news_item['image_cid']})
         
+        # 뉴스레터 배너 이미지를 첨부합니다.
+        banner_path = "assets/logicharacter.png"
+        if os.path.exists(banner_path):
+            images_to_embed.append({'path': banner_path, 'cid': 'newsletter_banner'})
+
+         # 운세 캐릭터 이미지를 첨부합니다.
+        fortune_char_path = "assets/fortunechar.png"
+        if os.path.exists(fortune_char_path):
+            images_to_embed.append({'path': fortune_char_path, 'cid': 'furtunechar.png'})    
+        
         email_service.send_email(email_subject, email_body, images_to_embed)
         
         # --- 6. 상태 저장 및 마무리 ---
@@ -1186,6 +1241,27 @@ def run_daily_newsletter(config, driver_path):
             news_service.update_sent_links_log(top_news)
             save_newsletter_history(top_news)
         update_archive_index()
+
+        #주간 뉴스레터 후보군으로 오늘의 기사를 저장
+        try:
+            #기존 후보 파일이 있으면 불러오고, 없으면 빈걸로 시작
+            try:
+                with open(config.WEEKLY_CANDIDATES_FILE, 'r', encoding='utf-8') as f:
+                    all_candidates = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                all_candidates=[]
+            
+            # 오늘 발송된 뉴스 추가(이미지 데이터는 제외)
+            for news in top_news:
+                news_to_save = {k: v for k, v in news.items() if k != 'image_data'}
+                all_candidates.append(news_to_save)
+            #전체 후보 다시 파일에 저장
+            with open(config.WEEKLY_CANDIDATES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(all_candidates, f, ensure_ascii=False, indent=4)
+            print(f"✅ 주간 후보 뉴스로 {len(top_news)}개를 저장했습니다. (총 {len(all_candidates)}개)")
+
+        except Exception as e:
+            print(f"❌ 주간 후보 뉴스 저장 실패: {e}")
 
         print("\n🎉 일간 뉴스레터 프로세스가 성공적으로 완료되었습니다.")
     except Exception as e:
@@ -1218,13 +1294,33 @@ def run_weekly_newsletter(config, driver_path):
         risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
         risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
 
+        # ✨ [신규] 띠별 운세 데이터 생성 및 가공 ---
+        zodiac_horoscopes = ai_service.generate_zodiac_horoscopes()
+        if zodiac_horoscopes:
+            zodiac_emojis = {'쥐': '🐭', '소': '🐮', '호랑이': '🐯', '토끼': '🐰', '용': '🐲', '뱀': '🐍', '말': '🐴', '양': '🐑', '원숭이': '🐵', '닭': '🐔', '개': '🐶', '돼지': '🐷'}
+            for item in zodiac_horoscopes:
+                item['emoji'] = zodiac_emojis.get(item['name'], '❓')
+        # ---
+
         # --- 3. 뉴스 데이터 수집 및 처리 (주간용 설정 사용) ---
         previous_top_news = load_newsletter_history(filepath='previous_weekly_newsletter.json')
         
-        # ✨ [수정] 분리된 함수를 주간용 설정으로 순서대로 호출
-        candidate_articles = news_service.fetch_candidate_articles(
-            keywords=config.KEYWORD_GROUPS_WEEKLY, 
-            hours=config.NEWS_FETCH_HOURS_WEEKLY
+        
+        # ✨ [수정] 파일이 있으면 읽고, 없으면 웹에서 수집하는 Fallback 로직을 추가합니다.
+        all_news = []
+        try:
+            with open(config.WEEKLY_CANDIDATES_FILE, 'r', encoding='utf-8') as f:
+                all_news = json.load(f)
+            if not all_news:
+                # 파일은 있지만 내용이 비어있는 경우를 위해 에러 발생
+                raise FileNotFoundError("주간 후보 파일이 비어있습니다.")
+            print(f"✅ 주간 후보 뉴스 {len(all_news)}개를 파일에서 불러왔습니다.")
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(f"⚠️ 주간 후보 파일을 사용할 수 없어 웹에서 직접 뉴스를 수집합니다 (Fallback).")
+            # --- Fallback: 기존의 웹 스크래핑 로직 실행 ---
+            candidate_articles = news_service.fetch_candidate_articles(
+                keywords=config.KEYWORD_GROUPS_WEEKLY, 
+                hours=config.NEWS_FETCH_HOURS_WEEKLY
         )
         all_news = news_service.process_articles(candidate_articles, driver_path)
         
@@ -1237,7 +1333,7 @@ def run_weekly_newsletter(config, driver_path):
         ai_briefing_html = markdown_to_html(ai_briefing_md)
         
         # --- 4. 템플릿에 전달할 최종 데이터 준비 ---
-        title_text = "주간 화물/물류 뉴스"
+        title_text = "로디와 함께하는 주간 물류 산책"
         if price_chart_result: price_indicators['price_chart_b64'] = price_chart_result['base64']
         weather_dashboard_b64 = weather_result['base64'] if weather_result else None
         
@@ -1256,7 +1352,8 @@ def run_weekly_newsletter(config, driver_path):
             "price_indicators": price_indicators,
             "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
-            "has_weather_dashboard": True if weather_dashboard_b64 else False
+            "has_weather_dashboard": True if weather_dashboard_b64 else False,
+            "zodiac_horoscopes": zodiac_horoscopes
         }
         
         # --- 5. HTML 생성 및 이메일 발송 ---
@@ -1281,6 +1378,18 @@ def run_weekly_newsletter(config, driver_path):
             if news_item.get('image_data') and news_item.get('image_cid'):
                 images_to_embed.append({'data': news_item['image_data'], 'cid': news_item['image_cid']})
         
+
+        # 뉴스레터 배너 이미지를 첨부합니다.
+        banner_path = "assets/logicharacter.png"
+        if os.path.exists(banner_path):
+            images_to_embed.append({'path': banner_path, 'cid': 'newsletter_banner'})
+
+
+         # 운세 캐릭터 이미지를 첨부합니다.
+        fortune_char_path = "assets/fortunechar.png"
+        if os.path.exists(fortune_char_path):
+            images_to_embed.append({'path': fortune_char_path, 'cid': 'furtunechar.png'})        
+        
         email_service.send_email(email_subject, email_body, images_to_embed)
         
         # --- 6. 상태 저장 및 마무리 ---
@@ -1288,6 +1397,13 @@ def run_weekly_newsletter(config, driver_path):
             news_service.update_sent_links_log(top_news)
             save_newsletter_history(top_news, filepath='previous_weekly_newsletter.json')
         update_archive_index()
+
+        try:
+            with open(config.WEEKLY_CANDIDATES_FILE, 'w', encoding='utf-8') as f:
+                json.dump([], f) # 빈 리스트를 파일에 덮어쓰기
+            print(f"✅ '{config.WEEKLY_CANDIDATES_FILE}' 파일을 초기화했습니다.")
+        except Exception as e:
+            print(f"❌ 주간 후보 뉴스 파일 초기화 실패: {e}")
 
         print("\n🎉 주간 뉴스레터 프로세스가 성공적으로 완료되었습니다.")
     except Exception as e:
@@ -1315,9 +1431,116 @@ def main():
     else:
         print(f"❌ 알 수 없는 실행 모드입니다: '{config.EXECUTION_MODE}'. 'daily' 또는 'weekly'로 설정해주세요.")
 
+def main_for_chart_test():
+    """오직 '유가 추이 차트' 생성 기능만 테스트하는 함수"""
+    print("🚀 유가 추이 차트 생성 테스트를 시작합니다.")
+    try:
+        # --- 1. 필요한 객체 및 폴더 준비 ---
+        config = Config()
+        today_str = get_kst_today_str()
+        os.makedirs('images', exist_ok=True)
+
+        # --- 2. 유가 데이터 수집 ---
+        price_indicators = get_price_indicators(config)
+        
+        # --- 3. 차트 생성 (테스트 핵심) ---
+        if price_indicators.get("seven_day_data"):
+            create_price_trend_chart(price_indicators["seven_day_data"], today_str)
+        else:
+            print("❌ 차트를 생성하는 데 필요한 7일간의 유가 데이터를 가져오지 못했습니다.")
+
+        print("\n🎉 차트 생성 테스트가 완료되었습니다. 'images' 폴더를 확인해주세요.")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+
+
+
+
+def main_for_horoscope_test():
+    """오직 '띠별 운세' 생성 기능만 테스트하는 함수"""
+    print("🚀 띠별 운세 생성 테스트를 시작합니다.")
+    try:
+        config = Config()
+        ai_service = AIService(config)
+        
+        horoscopes = ai_service.generate_zodiac_horoscopes()
+        
+        if horoscopes:
+            print("\n--- [AI 띠별 운세 생성 결과] ---")
+            for h in horoscopes:
+                print(f"\n[ {h.get('name')}띠 ]")
+                print(f"  - 운세: {h.get('fortune')}")
+                print(f"  - 행운색: {h.get('lucky_color')}")
+                print(f"  - 궁합: {h.get('compatible_sign')}")
+            print("\n---------------------------------")
+        else:
+            print("❌ 운세 데이터를 생성하지 못했습니다.")
+
+        print("\n🎉 띠별 운세 생성 테스트가 완료되었습니다.")
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
+
+
+def test_render_horoscope_email():
+    """샘플 데이터로 띠별 운세 섹션이 포함된 HTML 파일을 생성하여 시각적으로 테스트합니다."""
+    print("🚀 띠별 운세 이메일 렌더링 테스트를 시작합니다.")
+    try:
+        # 1. Jinja2 템플릿 환경을 설정합니다.
+        env = Environment(loader=FileSystemLoader('.'))
+        template = env.get_template('email_template.html')
+
+        # 2. '로디' 페르소나를 흉내 낸 샘플 운세 데이터를 만듭니다.
+        sample_horoscopes = [
+            {
+                'name': '쥐', 'emoji': '🐭',
+                'fortune': '오늘은 새로운 아이디어가 샘솟는 하루가 될 거예요! 반짝이는 생각을 놓치지 말고 꼭 메모해두세요. 분명 좋은 결과로 이어질 거랍니다.',
+                'lucky_color': '노랑', 'compatible_sign': '용'
+            },
+            {
+                'name': '호랑이', 'emoji': '🐯',
+                'fortune': '주변 사람들에게 따뜻한 말을 건네면 행운이 찾아온대요! 오늘은 제가 먼저 다가가서 힘이 되어주는 멋진 하루를 만들어 봐요!',
+                'lucky_color': '초록', 'compatible_sign': '말'
+            },
+            {
+                'name': '돼지', 'emoji': '🐷',
+                'fortune': '그동안 노력해왔던 일에 대한 보상을 받게 될 것 같은 좋은 예감이 들어요. 조금만 더 힘내세요! 맛있는 저녁을 기대해도 좋을지도? 😋',
+                'lucky_color': '주황', 'compatible_sign': '토끼'
+            }
+        ]
+
+        # 3. 템플릿에 전달할 context 데이터를 구성합니다.
+        #    - 다른 값들은 비워두고 운세 데이터만 넣어서 테스트합니다.
+        context = {
+            "title": "테스트: 띠별 운세 미리보기",
+            "today_date": get_kst_today_str(),
+            "ai_briefing": None, "risk_briefing_html": None,
+            "price_indicators": None, "news_list": [],
+            "weather_dashboard_b64": None, "has_weather_dashboard": False,
+            "zodiac_horoscopes": sample_horoscopes
+        }
+
+        # 4. 템플릿을 렌더링하여 HTML 파일로 저장합니다.
+        rendered_html = template.render(context)
+        output_filename = 'horoscope_email_preview.html'
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            f.write(rendered_html)
+
+        print(f"\n✅ 테스트 완료! '{output_filename}' 파일이 생성되었습니다.")
+        print("   이 파일을 웹 브라우저로 열어서 어떻게 보이는지 확인해보세요.")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"🔥 테스트 중 오류 발생: {e}")
 
 
 if __name__ == "__main__":
-     main()
-     
-
+    main()
+    #main_for_horoscope_test()
+    #test_render_horoscope_email()
