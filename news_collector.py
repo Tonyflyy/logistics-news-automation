@@ -90,6 +90,9 @@ def _clean_and_validate_url_worker(url):
         parsed = urlparse(url)
         if any(ad_domain in parsed.netloc for ad_domain in config.AD_DOMAINS_BLACKLIST):
             return None
+        if any(pattern in parsed.path.lower() for pattern in config.UNWANTED_URL_PATTERNS):
+            return None
+            
         path = parsed.path.lower()
         is_likely_article = (
             any(char.isdigit() for char in path) or
@@ -1552,5 +1555,6 @@ if __name__ == "__main__":
     main()
     #main_for_horoscope_test()
     #test_render_horoscope_email()
+
 
 
