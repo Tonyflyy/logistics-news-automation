@@ -14,9 +14,9 @@
         style="width: 100%; max-width: 720px; margin: 20px auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 6px;">
 
         <div style="width: 100%;">
-    <img src="cid:newsletter_banner" 
-        alt="로디의 물류 뉴스레터 배너"
-        style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
+    <img src="{% if target == 'web' %}../assets/logicharacter.png{% else %}cid:newsletter_banner{% endif %}" 
+     alt="로디의 물류 뉴스레터 배너"
+     style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
 </div>
 
         <div style="padding: 24px; text-align: center; border-bottom: 1px solid #e1e4e8;">
@@ -149,10 +149,10 @@
     <h3 style="margin: 0 0 20px 0; font-size: 16px; color: #333; text-align: center;">오늘의 운세, 로디가 알려줄게요! 🔮</h3>
 
 <p style="text-align: center; margin-bottom: 20px;">
-    <img src="cid:furtunechar.png" 
-         alt="로디의 오늘의 운세" 
-         width="500" 
-         style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 8px;">
+    <img src="{% if target == 'web' %}../assets/fortunechar.png{% else %}cid:fortunechar.png{% endif %}" 
+     alt="로디의 오늘의 운세" 
+     width="500" 
+     style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 8px;">
 </p>
 
     {% for h in zodiac_horoscopes %}
@@ -197,3 +197,4 @@
 </body>
 
 </html>
+
