@@ -56,7 +56,7 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         DAILY_RECIPIENT_LIST: ${{ secrets.DAILY_RECIPIENT_LIST }}
-        WEEKLY_RECIPIENT_LIST: ${{ secrets.WEEKLY_RECIPIENT_LIST }
+        WEEKLY_RECIPIENT_LIST: ${{ secrets.WEEKLY_RECIPIENT_LIST }}
         OPINET_API_KEY: ${{ secrets.OPINET_API_KEY }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
@@ -111,7 +111,7 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         DAILY_RECIPIENT_LIST: ${{ secrets.DAILY_RECIPIENT_LIST }}
-        WEEKLY_RECIPIENT_LIST: ${{ secrets.WEEKLY_RECIPIENT_LIST }
+        WEEKLY_RECIPIENT_LIST: ${{ secrets.WEEKLY_RECIPIENT_LIST }}
         OPINET_API_KEY: ${{ secrets.OPINET_API_KEY }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
