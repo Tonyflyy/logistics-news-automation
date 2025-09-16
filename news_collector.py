@@ -1255,18 +1255,22 @@ def run_daily_newsletter(config, driver_path):
 
         #주간 뉴스레터 후보군으로 오늘의 기사를 저장
         try:
-            #기존 후보 파일이 있으면 불러오고, 없으면 빈걸로 시작
+            # 기존 후보군 파일이 있으면 불러오고, 없으면 빈 리스트로 시작
             try:
                 with open(config.WEEKLY_CANDIDATES_FILE, 'r', encoding='utf-8') as f:
                     all_candidates = json.load(f)
             except (FileNotFoundError, json.JSONDecodeError):
-                all_candidates=[]
-            
-            # 오늘 발송된 뉴스 추가(이미지 데이터는 제외)
+                all_candidates = []
+    
+            # 오늘 발송된 뉴스를 추가 (이미지 데이터를 Base64로 인코딩하여 저장)
             for news in top_news:
-                news_to_save = {k: v for k, v in news.items() if k != 'image_data'}
+                news_to_save = news.copy() # 원본 수정을 피하기 위해 복사
+                if 'image_data' in news_to_save and news_to_save['image_data']:
+                # 이미지(bytes)를 Base64(string)으로 변환
+                    news_to_save['image_data'] = base64.b64encode(news_to_save['image_data']).decode('utf-8')
                 all_candidates.append(news_to_save)
-            #전체 후보 다시 파일에 저장
+
+            # 전체 후보군을 다시 파일에 저장
             with open(config.WEEKLY_CANDIDATES_FILE, 'w', encoding='utf-8') as f:
                 json.dump(all_candidates, f, ensure_ascii=False, indent=4)
             print(f"✅ 주간 후보 뉴스로 {len(top_news)}개를 저장했습니다. (총 {len(all_candidates)}개)")
@@ -1328,6 +1332,12 @@ def run_weekly_newsletter(config, driver_path):
                 hours=config.NEWS_FETCH_HOURS_WEEKLY
             )
             all_news = news_service.process_articles(candidate_articles, driver_path)
+
+        # ✨ [신규] 파일에서 불러온 Base64 이미지 데이터를 원래의 bytes 형태로 복원합니다.
+        for news in all_news:
+            if 'image_data' in news and isinstance(news['image_data'], str):
+                # Base64(string)을 다시 이미지(bytes)로 변환
+                news['image_data'] = base64.b64decode(news['image_data'])
         
         # --- 3. 뉴스 데이터 수집 및 처리 (주간용 설정 사용) ---
         previous_top_news = load_newsletter_history(filepath='previous_weekly_newsletter.json')
@@ -1634,6 +1644,7 @@ if __name__ == "__main__":
         # 로컬에서 직접 실행 시 (인자 없음)
         main()
         # test_image_rendering() # 로컬 테스트 시 이 부분 주석 해제
+
 
 
 
