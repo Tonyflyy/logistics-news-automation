@@ -1527,7 +1527,7 @@ def test_image_rendering():
         
         # --- 3. 템플릿에 전달할 샘플 데이터(context) 구성 ---
         # 뉴스 기사 이미지 테스트를 위해 샘플 뉴스 1개 생성
-        sample_news_image_b64 = image_to_base64_string('assets/furtunechar.png')
+        sample_news_image_b64 = image_to_base64_string('assets/fortunechar.png')
         sample_news_list = [{
             'title': '[샘플 뉴스] 이미지 테스트',
             'link': '#',
@@ -1631,6 +1631,7 @@ if __name__ == "__main__":
         # 로컬에서 직접 실행 시 (인자 없음)
         main()
         # test_image_rendering() # 로컬 테스트 시 이 부분 주석 해제
+
 
 
 
