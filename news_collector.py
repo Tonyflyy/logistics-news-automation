@@ -1313,17 +1313,11 @@ def run_weekly_newsletter(config, driver_path):
                 item['emoji'] = zodiac_emojis.get(item['name'], '❓')
         # ---
 
-        # --- 3. 뉴스 데이터 수집 및 처리 (주간용 설정 사용) ---
-        previous_top_news = load_newsletter_history(filepath='previous_weekly_newsletter.json')
-        
-        
-        # ✨ [수정] 파일이 있으면 읽고, 없으면 웹에서 수집하는 Fallback 로직을 추가합니다.
         all_news = []
         try:
             with open(config.WEEKLY_CANDIDATES_FILE, 'r', encoding='utf-8') as f:
                 all_news = json.load(f)
             if not all_news:
-                # 파일은 있지만 내용이 비어있는 경우를 위해 에러 발생
                 raise FileNotFoundError("주간 후보 파일이 비어있습니다.")
             print(f"✅ 주간 후보 뉴스 {len(all_news)}개를 파일에서 불러왔습니다.")
         except (FileNotFoundError, json.JSONDecodeError):
@@ -1332,9 +1326,11 @@ def run_weekly_newsletter(config, driver_path):
             candidate_articles = news_service.fetch_candidate_articles(
                 keywords=config.KEYWORD_GROUPS_WEEKLY, 
                 hours=config.NEWS_FETCH_HOURS_WEEKLY
-        )
-        all_news = news_service.process_articles(candidate_articles, driver_path)
+            )
+            all_news = news_service.process_articles(candidate_articles, driver_path)
         
+        # --- 3. 뉴스 데이터 수집 및 처리 (주간용 설정 사용) ---
+        previous_top_news = load_newsletter_history(filepath='previous_weekly_newsletter.json')
         top_news = ai_service.select_top_news(all_news, previous_top_news, count=config.SELECT_NEWS_COUNT_WEEKLY)
         
         if not top_news:
@@ -1638,6 +1634,7 @@ if __name__ == "__main__":
         # 로컬에서 직접 실행 시 (인자 없음)
         main()
         # test_image_rendering() # 로컬 테스트 시 이 부분 주석 해제
+
 
 
 
