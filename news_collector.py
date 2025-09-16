@@ -254,6 +254,8 @@ def render_html_template(context, target='email'):
     price_chart_b64 = context.get("price_indicators", {}).get("price_chart_b64")
     weather_dashboard_b64 = context.get("weather_dashboard_b64")
 
+    context['target'] = target
+
     if target == 'web':
         # 웹페이지에서는 Base64 데이터 URI를 사용
         if price_chart_b64:
@@ -1550,4 +1552,5 @@ if __name__ == "__main__":
     main()
     #main_for_horoscope_test()
     #test_render_horoscope_email()
+
 
