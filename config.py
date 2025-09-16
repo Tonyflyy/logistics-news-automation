@@ -71,6 +71,11 @@ class Config:
         'logo', 'icon', 'favicon', 'ad', 'banner', 'btn', 'button', 'spinner', 'loading',
         'gravatar.com', 'googleusercontent.com/profile', '1x1.gif', 'spacer.gif'
     ]
+
+    UNWANTED_URL_PATTERNS = [
+    '/admin/', '/login', 'LoginForm.html', '/join/', '/member/', 
+    '/v.daum.net/v/', # 다음 뉴스 포털 링크 제외
+    ]
     
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -192,3 +197,4 @@ class Config:
         "DE:Christmas Day": "크리스마스",
         "DE:Second Day of Christmas": "크리스마스 연휴",
     }
+
