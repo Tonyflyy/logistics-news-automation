@@ -22,6 +22,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import re
 from newspaper import Article
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 from matplotlib.ticker import FuncFormatter
 # 서드파티 라이브러리
 import requests
@@ -283,10 +284,15 @@ def create_price_trend_chart(seven_day_data, today_str):
         elif system_name == 'Darwin':
             plt.rc('font', family='AppleGothic')
         else:
-            if os.path.exists('/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf'):
-                plt.rc('font', family='NanumGothicBold')
+            font_path = '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf'
+            if os.path.exists(font_path):
+                # Matplotlib의 폰트 목록에 나눔고딕이 없으면, 캐시를 재생성
+                if 'NanumGothic' not in [f.name for f in fm.fontManager.ttflist]:
+                    print("-> 나눔고딕 폰트를 찾을 수 없어 Matplotlib 폰트 캐시를 재생성합니다.")
+                    fm._rebuild()
+                plt.rc('font', family='NanumGothic') # 'NanumGothicBold' 대신 'NanumGothic' 사용이 더 안정적
             else:
-                print("⚠️ NanumGothic 폰트가 없어 기본 폰트로 출력됩니다 (한글 깨짐 가능성).")
+                print("⚠️ 나눔고딕 폰트 파일이 없어 기본 폰트로 출력됩니다.")
         plt.rcParams['axes.unicode_minus'] = False
 
         # --- 데이터 준비 (기존과 동일) ---
@@ -1544,3 +1550,4 @@ if __name__ == "__main__":
     main()
     #main_for_horoscope_test()
     #test_render_horoscope_email()
+
