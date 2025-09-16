@@ -2,6 +2,15 @@ name: Send Daily Logistics Newsletter
 
 on:
   workflow_dispatch:
+    inputs:
+      job_to_run:
+        description: '어떤 작업을 실행할까요? (daily/weekly)'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - weekly
   schedule:
     #  위클리/데일리 스케줄을 모두 KST 오전 8시로 통일
     # 1. 위클리: 한국 시간(KST)으로 매주 '월요일' 오전 8시에 실행 (UTC 기준 일요일 23:00)
@@ -18,7 +27,8 @@ jobs:
   # =======================================================
   weekly-job:
     # cron 스케줄이 일요일 23시(UTC)일 경우에만 이 작업이 실행
-    if: github.event.schedule == '0 23 * * 0'
+    if: github.event.schedule == '0 23 * * 0' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'weekly')
+
     runs-on: ubuntu-latest
 
     steps:
@@ -76,7 +86,7 @@ jobs:
   # =======================================================
   daily-job:
     # cron 스케줄이 월~토요일 23시(UTC)일 경우에만 이 작업이 실행됩니다.
-    if: github.event.schedule == '0 23 * * 1-6'
+    if: github.event.schedule == '0 23 * * 1-6' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'daily')
     runs-on: ubuntu-latest
 
     steps:
