@@ -58,12 +58,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y fonts-nanum
       
-    - name: 'Matplotlib 폰트 캐시 재생성'
-      run: |
-        rm -rf ~/.cache/matplotlib/*
-        python -c "import matplotlib.font_manager"
-
-        
     - name: '[핵심] 실행 모드를 "weekly"로 변경'
       run: sed -i "s/EXECUTION_MODE = 'daily'/EXECUTION_MODE = 'weekly'/" config.py
       
@@ -122,11 +116,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y fonts-nanum
 
-    - name: 'Matplotlib 폰트 캐시 재생성'
-      run: |
-        rm -rf ~/.cache/matplotlib/*
-        python -c "import matplotlib.font_manager"
-  
     - name: '스크립트 실행 (데일리 모드)'
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
