@@ -1617,10 +1617,21 @@ def test_render_horoscope_email():
 
 
 if __name__ == "__main__":
-    #main()
-    #main_for_horoscope_test()
-    #test_render_horoscope_email()
-    test_image_rendering()
+    import sys
+    if len(sys.argv) > 1:
+        mode = sys.argv[1]
+        if mode == 'test_images':
+            test_image_rendering()
+        elif mode == 'test_horoscope':
+            main_for_horoscope_test()
+        else:
+            # 기본 main() 실행 또는 다른 인자 처리
+            main()
+    else:
+        # 로컬에서 직접 실행 시 (인자 없음)
+        main()
+        # test_image_rendering() # 로컬 테스트 시 이 부분 주석 해제
+
 
 
 
