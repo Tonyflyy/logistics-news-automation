@@ -74,7 +74,9 @@ class Config:
 
     UNWANTED_URL_PATTERNS = [
     '/admin/', '/login', 'LoginForm.html', '/join/', '/member/', 
-    '/v.daum.net/v/', # 다음 뉴스 포털 링크 제외
+    '/v.daum.net/v/', 
+    'cooper=RSS',       
+    'articleList.html', 
     ]
     
     USER_AGENTS = [
@@ -99,7 +101,8 @@ class Config:
         'doubleclick.net',''
         'msn.com',
         'nate.com',
-        'zum.com'
+        'zum.com',
+        'ads.mtgroup.kr'
     ]
 
     # 날씨 API 설정
@@ -197,4 +200,5 @@ class Config:
         "DE:Christmas Day": "크리스마스",
         "DE:Second Day of Christmas": "크리스마스 연휴",
     }
+
 
