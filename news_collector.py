@@ -1522,7 +1522,7 @@ def test_image_rendering():
         print("✅ (테스트) 동적 이미지 생성 완료")
         
         # --- 3. 웹페이지용 HTML 렌더링 및 저장 ---
-        sample_news_image_b64 = image_to_base64_string('assets/furtunechar.png')
+        sample_news_image_b64 = image_to_base64_string('assets/fortunechar.png')
         web_context = {
             "title": "이미지 렌더링 테스트 (웹)", "today_date": today_str, "target": "web",
             "has_weather_dashboard": True,
@@ -1552,7 +1552,7 @@ def test_image_rendering():
         # (B) 이메일에 첨부할 이미지 목록 생성
         images_to_embed = []
         if os.path.exists('assets/logicharacter.png'): images_to_embed.append({'path': 'assets/logicharacter.png', 'cid': 'newsletter_banner'})
-        if os.path.exists('assets/furtunechar.png'): images_to_embed.append({'path': 'assets/furtunechar.png', 'cid': 'furtunechar.png'})
+        if os.path.exists('assets/fortunechar.png'): images_to_embed.append({'path': 'assets/fortunechar.png', 'cid': 'fortunechar.png'})
         if weather_result: images_to_embed.append({'path': weather_result['filepath'], 'cid': 'weather_dashboard'})
         if price_chart_result: images_to_embed.append({'path': price_chart_result['filepath'], 'cid': 'price_chart'})
         images_to_embed.append({'data': base64.b64decode(sample_news_image_b64), 'cid': 'sample_news_image_0'})
@@ -1638,6 +1638,7 @@ if __name__ == "__main__":
         # 로컬에서 직접 실행 시 (인자 없음)
         main()
         # test_image_rendering() # 로컬 테스트 시 이 부분 주석 해제
+
 
 
 
