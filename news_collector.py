@@ -1243,7 +1243,7 @@ def run_daily_newsletter(config, driver_path):
          # 운세 캐릭터 이미지를 첨부합니다.
         fortune_char_path = "assets/fortunechar.png"
         if os.path.exists(fortune_char_path):
-            images_to_embed.append({'path': fortune_char_path, 'cid': 'furtunechar.png'})    
+            images_to_embed.append({'path': fortune_char_path, 'cid': 'fortunechar.png'})    
         
         email_service.send_email(email_subject, email_body, images_to_embed)
         
@@ -1399,7 +1399,7 @@ def run_weekly_newsletter(config, driver_path):
          # 운세 캐릭터 이미지를 첨부합니다.
         fortune_char_path = "assets/fortunechar.png"
         if os.path.exists(fortune_char_path):
-            images_to_embed.append({'path': fortune_char_path, 'cid': 'furtunechar.png'})        
+            images_to_embed.append({'path': fortune_char_path, 'cid': 'fortunechar.png'})        
         
         email_service.send_email(email_subject, email_body, images_to_embed)
         
@@ -1555,6 +1555,7 @@ if __name__ == "__main__":
     main()
     #main_for_horoscope_test()
     #test_render_horoscope_email()
+
 
 
 
