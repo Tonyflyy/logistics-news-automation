@@ -1497,7 +1497,72 @@ def main_for_horoscope_test():
         traceback.print_exc()
         print(f"🔥 테스트 중 치명적인 오류 발생: {e.__class__.__name__}: {e}")
 
+def test_image_rendering():
+    """
+    전체 뉴스레터 프로세스 실행 없이, 모든 이미지가 HTML에 정상적으로
+    표시되는지만을 확인하기 위한 테스트 함수입니다.
+    """
+    print("🚀 이미지 렌더링 테스트를 시작합니다...")
+    try:
+        # --- 1. 테스트에 필요한 기본 객체 및 폴더 준비 ---
+        config = Config()
+        today_str = get_kst_today_str()
+        os.makedirs('images', exist_ok=True)
 
+        # --- 2. 동적 이미지 생성 (날씨 대시보드, 유가 차트) ---
+        # 날씨 대시보드 생성
+        weather_service = WeatherService(config)
+        weather_result = weather_service.create_dashboard_image(today_str)
+        weather_dashboard_b64 = weather_result['base64'] if weather_result else None
+        print("✅ (테스트) 날씨 대시보드 이미지 생성 완료")
+
+        # 유가 차트 생성을 위한 최소한의 샘플 데이터
+        sample_seven_day_data = {
+            "gasoline": [{"DATE": "20250910", "PRICE": "1750.0"}, {"DATE": "20250911", "PRICE": "1752.0"}, {"DATE": "20250912", "PRICE": "1755.0"}, {"DATE": "20250913", "PRICE": "1753.0"}, {"DATE": "20250914", "PRICE": "1758.0"}, {"DATE": "20250915", "PRICE": "1760.0"}, {"DATE": "20250916", "PRICE": "1762.0"}],
+            "diesel": [{"DATE": "20250910", "PRICE": "1650.0"}, {"DATE": "20250911", "PRICE": "1652.0"}, {"DATE": "20250912", "PRICE": "1655.0"}, {"DATE": "20250913", "PRICE": "1653.0"}, {"DATE": "20250914", "PRICE": "1658.0"}, {"DATE": "20250915", "PRICE": "1660.0"}, {"DATE": "20250916", "PRICE": "1662.0"}]
+        }
+        price_chart_result = create_price_trend_chart(sample_seven_day_data, today_str)
+        price_indicators = {'price_chart_b64': price_chart_result['base64']} if price_chart_result else {}
+        print("✅ (테스트) 유가 차트 이미지 생성 완료")
+        
+        # --- 3. 템플릿에 전달할 샘플 데이터(context) 구성 ---
+        # 뉴스 기사 이미지 테스트를 위해 샘플 뉴스 1개 생성
+        sample_news_image_b64 = image_to_base64_string('assets/furtunechar.png')
+        sample_news_list = [{
+            'title': '[샘플 뉴스] 이미지 테스트',
+            'link': '#',
+            'ai_summary': '이것은 뉴스 기사 이미지가 정상적으로 출력되는지 확인하기 위한 샘플 텍스트입니다.',
+            'image_src': f"data:image/png;base64,{sample_news_image_b64}"
+        }]
+
+        context = {
+            "title": "이미지 렌더링 테스트",
+            "today_date": today_str,
+            "target": "web", # 웹 아카이브 기준으로 테스트
+            "has_weather_dashboard": True,
+            "weather_dashboard_b64": weather_dashboard_b64,
+            "price_indicators": price_indicators,
+            "news_list": sample_news_list,
+            # 아래 두 항목은 템플릿의 if/else 분기 테스트를 위해 비워둡니다.
+            "ai_briefing": None,
+            "risk_briefing_html": None,
+            "zodiac_horoscopes": [] # 운세 이미지는 템플릿에서 직접 경로를 사용하므로 빈 리스트로 둠
+        }
+
+        # --- 4. 웹 페이지용 HTML 렌더링 및 저장 ---
+        web_html = render_html_template(context, target='web')
+        output_filename = 'image_test_preview.html'
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            f.write(web_html)
+
+        print(f"\n✅ 테스트 완료! '{output_filename}' 파일이 생성되었습니다.")
+        print("   이 파일을 웹 브라우저로 열어서 모든 이미지가 정상적으로 보이는지 확인해주세요.")
+        print("   (배너, 날씨, 유가, 운세, 샘플 뉴스 이미지 총 5종)")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"🔥 이미지 테스트 중 오류 발생: {e}")
 def test_render_horoscope_email():
     """샘플 데이터로 띠별 운세 섹션이 포함된 HTML 파일을 생성하여 시각적으로 테스트합니다."""
     print("🚀 띠별 운세 이메일 렌더링 테스트를 시작합니다.")
@@ -1552,9 +1617,11 @@ def test_render_horoscope_email():
 
 
 if __name__ == "__main__":
-    main()
+    #main()
     #main_for_horoscope_test()
     #test_render_horoscope_email()
+    test_image_rendering()
+
 
 
 
