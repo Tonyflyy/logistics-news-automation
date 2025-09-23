@@ -10,7 +10,7 @@ class Config:
     """설정 값들을 관리하는 클래스"""
     
 
-    # ✨ [핵심] 'daily' 또는 'weekly'로 실행 모드를 선택합니다.
+    # 'daily' 또는 'weekly'로 실행 모드를 선택
     EXECUTION_MODE = 'daily'
 
     # API 키 및 수신자 목록 (환경 변수에서 로드)
@@ -35,7 +35,7 @@ class Config:
     MIN_IMAGE_WIDTH = 300
     MIN_IMAGE_HEIGHT = 150
     DEFAULT_IMAGE_URL = 'https://via.placeholder.com/600x300.png?text=News'
-    MAX_ARTICLES_TO_PROCESS = 500 # 수집할 최대 기사 수
+    MAX_ARTICLES_TO_PROCESS = 300 # 수집할 최대 기사 수
     
      # ✨ [분리] 뉴스 수집 기간 설정
     NEWS_FETCH_HOURS_DAILY = 24
@@ -98,7 +98,7 @@ class Config:
     AD_DOMAINS_BLACKLIST = [
         'contentsfeed.com',
         'googleadservices.com',
-        'doubleclick.net',''
+        'doubleclick.net',
         'msn.com',
         'nate.com',
         'zum.com',
@@ -117,88 +117,8 @@ class Config:
     }
 
     # 분석 대상 국가 코드 (Python 'holidays' 라이브러리 기준)
-    RISK_BRIEFING_TARGET_COUNTRIES = ['KR', 'CN', 'US', 'VN', 'DE'] # 한국, 중국, 미국, 베트남, 독일
+    #RISK_BRIEFING_TARGET_COUNTRIES = ['KR', 'CN', 'US', 'VN', 'DE'] # 한국, 중국, 미국, 베트남, 독일
+    RISK_BRIEFING_TARGET_COUNTRIES = ['KR'] 
 
-     # 수동으로 관리할 주요 물류 이벤트 목록
-    MANUAL_LOGISTICS_EVENTS = [
-        # --- 기존 이벤트 ---
-        {
-            "name": "중국 광군제 (双十一)", "country_code": "CN", "month": 11, "day": 11,
-            "risk_level": "높음", "impact_summary": "중국발 항공/해상 화물 수요가 폭증하며, 배송 지연 및 운임 급등이 예상됩니다."
-        },
-        {
-            "name": "미국 블랙프라이데이", "country_code": "US", "month": 11, "day_of_week": 4, "week_of_month": 4,
-            "risk_level": "높음", "impact_summary": "미국행 항공 화물 수요가 폭증하고 현지 내륙 운송의 병목 현상이 발생할 수 있습니다."
-        },
-        {
-            "name": "미국 사이버먼데이", "country_code": "US", "month": 11, "day_of_week": 0, "week_after_thanksgiving": 1,
-            "risk_level": "높음", "impact_summary": "블랙프라이데이와 이어지는 온라인 쇼핑 이벤트로 항공 화물 수요 증가세가 지속됩니다."
-        },
-
-        {
-            "name": "중국 춘절 연휴 시작", "country_code": "CN", "month": 1, "day": 29, # 2025년 기준, 매년 변동
-            "risk_level": "높음", "impact_summary": "중국 대부분의 공장과 물류 시스템이 약 2주간 멈추므로, 연휴 전 심각한 선적 지연이 발생합니다."
-        },
-        {
-            "name": "아마존 프라임데이", "country_code": "US", "month": 7, "day": 8, # 매년 아마존이 발표, 보통 7월 중
-            "risk_level": "높음", "impact_summary": "단기간에 이커머스 물량이 폭증하여 글로벌 항공 화물 운임에 영향을 미칩니다."
-        },
-        {
-            "name": "중국 618 쇼핑 페스티벌", "country_code": "CN", "month": 6, "day": 18,
-            "risk_level": "중간", "impact_summary": "중국 내수 물동량이 급증하며, 일부 항공/해상 운송에도 영향을 미칩니다."
-        },
-        {
-            "name": "박싱데이", "country_code": "DE", "month": 12, "day": 26, # 독일을 유럽 대표로 설정
-            "risk_level": "낮음", "impact_summary": "유럽 내 소매 물류 및 반품 물류량이 일시적으로 증가할 수 있습니다."
-        }
-    ]
-
-    HOLIDAY_NAME_TRANSLATIONS = {
-        # 미국 (US)
-        "US:New Year's Day": "새해 첫날",
-        "US:Martin Luther King, Jr. Day": "마틴 루터 킹 주니어의 날",
-        "US:Washington's Birthday": "워싱턴 탄생일",
-        "US:Memorial Day": "메모리얼 데이",
-        "US:Juneteenth National Independence Day": "준틴스 독립기념일",
-        "US:Independence Day": "독립기념일",
-        "US:Labor Day": "노동절",
-        "US:Columbus Day": "콜럼버스의 날",
-        "US:Veterans Day": "재향군인의 날",
-        "US:Thanksgiving": "추수감사절",
-        "US:Christmas Day": "크리스마스",
-        
-        # 중국 (CN)
-        "CN:New Year's Day": "새해 첫날",
-        "CN:Chinese New Year's Eve": "춘절 이브",
-        "CN:Chinese New Year": "춘절",
-        "CN:Lantern Festival": "원소절",
-        "CN:Qingming Festival": "청명절",
-        "CN:Labour Day": "노동절",
-        "CN:Dragon Boat Festival": "단오절",
-        "CN:Mid-Autumn Festival": "중추절",
-        "CN:National Day": "국경절",
-        "CN:Day off (substituted from Sunday)": "대체 휴일",
-        "CN:Day off (substituted from Saturday)": "대체 휴일",
-        
-        # 베트남 (VN)
-        "VN:New Year's Day": "새해 첫날",
-        "VN:Vietnamese New Year's Eve": "뗏 이브",
-        "VN:Vietnamese New Year": "뗏 (설날)",
-        "VN:Hung Kings' Festival": "흥왕 기념일",
-        "VN:Reunification Day": "남부 해방 기념일",
-        "VN:International Workers' Day": "국제 노동절",
-        "VN:National Day": "독립기념일",
-
-        # 독일 (DE)
-        "DE:New Year's Day": "새해 첫날",
-        "DE:Good Friday": "성금요일",
-        "DE:Easter Monday": "이스터 먼데이",
-        "DE:Labour Day": "노동절",
-        "DE:Ascension Day": "주님 승천 대축일",
-        "DE:Whit Monday": "성령 강림 대축일 월요일",
-        "DE:Day of German Unity": "독일 통일의 날",
-        "DE:Christmas Day": "크리스마스",
-        "DE:Second Day of Christmas": "크리스마스 연휴",
-    }
 
 
