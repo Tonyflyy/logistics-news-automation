@@ -9,6 +9,7 @@ import time
 import random
 from weather_service import WeatherService 
 from risk_briefing_service import RiskBriefingService
+from ai_service import AIService
 from utils import get_kst_today_str,get_kst_week_str, markdown_to_html, image_to_base64_string
 import logging
 from datetime import datetime, timezone, timedelta, date
@@ -211,27 +212,21 @@ def process_article_content_worker(articles_batch, driver_path: str):
                     print(f"[DEBUG] '{title}' | 6. 이미지 다운로드 | {time.time() - img_dl_start:.2f}s")
                     # 리사이징 로직 ...
                     original_width, original_height = img.size
-                    if original_width < 640:
-                        final_width, final_height = original_width, original_height
-                        buffer = BytesIO()
-                        if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-                        img.save(buffer, format='JPEG', quality=90)
-                        image_data = buffer.getvalue()
+                   
+                    aspect_ratio = original_height / original_width
+                    if aspect_ratio > 1.5:
+                        target_height = min(original_height, 800)
+                        target_width = int(target_height / aspect_ratio)
+                        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
                     else:
-                        aspect_ratio = original_height / original_width
-                        if aspect_ratio > 1.5:
-                            target_height = min(original_height, 800)
-                            target_width = int(target_height / aspect_ratio)
-                            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                        else:
-                            target_width = 640
-                            target_height = int(target_width * aspect_ratio)
-                            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                        final_width, final_height = img.size
-                        buffer = BytesIO()
-                        if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-                        img.save(buffer, format='JPEG', quality=85)
-                        image_data = buffer.getvalue()
+                        target_width = 640
+                        target_height = int(target_width * aspect_ratio)
+                        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                    final_width, final_height = img.size
+                    buffer = BytesIO()
+                    if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+                    img.save(buffer, format='JPEG', quality=85)
+                    image_data = buffer.getvalue()
                 except Exception: image_data = None
             if not image_data: continue
             
@@ -538,282 +533,6 @@ class NewsScraper:
         except Exception:
             return False
 
-class AIService:
-    def generate_zodiac_horoscopes(self):
-        """12간지 띠별 운세를 '로디' 페르소나로 생성하여 리스트로 반환합니다."""
-        print("-> AI 띠별 운세 생성을 시작합니다... (페르소나: 로디)")
-        zodiacs = ['쥐', '소', '호랑이', '토끼', '용', '뱀', '말', '양', '원숭이', '닭', '개', '돼지']
-        horoscopes = []
-
-        system_prompt = "너는 '로디'라는 이름의, 긍정 소식을 전해주는 20대 여성 캐릭터야. 오늘은 특별히 구독자들을 위해 12간지 띠별 운세를 봐주는 현명한 조언가 역할이야. '~했어요', '~랍니다' 같은 귀엽고 상냥한 말투는 유지하되, 단순한 긍정 메시지가 아닌 깊이 있는 운세를 전달해야 해. 응답은 반드시 JSON 형식으로만 부탁해!"
-        
-        for zodiac_name in zodiacs:
-            user_prompt = f"""
-            오늘 날짜에 맞춰 '{zodiac_name}'띠 운세 정보를 생성해 줘.
-
-            [작업 지시]
-            1.  **오늘의 운세 (fortune)**: 아래 4가지 요소를 모두 포함해서, 긍정적이면서도 깊이 있는 운세 메시지를 2-3줄로 요약해 줘.
-                - **오늘의 기운 묘사**: 그날의 전반적인 에너지 흐름을 '일상 생활'이나 '자연 현상'에 비유해서 먼저 설명해줘.
-                - **구체적인 상황**: '업무', '인간관계', '금전' 등 특정 분야를 언급해줘.
-                - **긍정적 기회**: 어떤 좋은 기회가 생길 수 있는지 알려줘.
-                - **조언 또는 주의점**: 기회를 잘 잡기 위한 조언이나, 가볍게 주의해야 할 점을 '다만, ~' 형식으로 살짝 덧붙여줘.
-            
-            2.  **오늘의 미션 (daily_mission)**: 오늘 하루 실천하면 행운을 가져다줄 작고 귀여운 미션 하나를 제안해 줘. (예: '점심 먹고 5분 산책하기', '가장 좋아하는 노래 듣기' 등)
-            3.  **행운의 아이템 (lucky_item)**: 오늘 지니고 다니면 좋은 행운의 아이템을 한 가지 알려줘. (예: '손수건', '파란색 펜' 등 일상적인 물건으로!)
-            4.  **행운의 색상 (lucky_color)**: 이 띠의 에너지를 올려줄 행운의 색상 하나를 추천해 줘.
-            5.  **잘 맞는 띠 (compatible_sign)**: 오늘 함께하면 시너지가 폭발할 것 같은 찰떡궁합 띠를 하나만 알려줘.
-
-            [참고: 다양한 일상 비유]
-            - '상쾌한 아침 공기', '배터리 100% 충전', '방 청소', '맑게 갠 하늘', '새로운 노래 발견' 등 누구나 공감할 수 있는 표현을 창의적으로 활용해 봐!
-
-            [출력 형식]
-            - 반드시 아래와 같은 키를 가진 JSON 객체로만 응답해야 해.
-            - 예시: {{"fortune": "...", "lucky_color": "...", "compatible_sign": "...", "daily_mission": "...", "lucky_item": "..."}}
-            """
-            
-            print(f"  -> '{zodiac_name}'띠 운세 요청 중...")
-            response_text = self._generate_content_with_retry(system_prompt, user_prompt, is_json=True)
-            
-            if response_text:
-                try:
-                    horoscope_data = json.loads(response_text)
-                    horoscope_data['name'] = zodiac_name # 딕셔너리에 띠 이름 추가
-                    horoscopes.append(horoscope_data)
-                except (json.JSONDecodeError, KeyError) as e:
-                    print(f"  ❌ '{zodiac_name}'띠 운세 파싱 실패: {e}. 해당 띠는 제외됩니다.")
-            else:
-                print(f"  ❌ '{zodiac_name}'띠 운세 생성 실패. API 응답 없음.")
-
-        if horoscopes:
-            print("✅ AI 띠별 운세 생성 완료!")
-        return horoscopes
-    
-    def generate_risk_briefing(self, risk_events):
-        if not risk_events:
-            return None
-            
-        print("-> AI 물류 리스크 브리핑 생성 시작... (페르소나: 로디)")
-
-        event_context = "\n".join(
-            [f"- 날짜: {e['date'].strftime('%Y-%m-%d')}, 국가: {e['country']}, 이벤트: {e['name']}, 리스크 수준: {e['risk_level']}, 예상 영향: {e['impact_summary']}" for e in risk_events]
-        )
-
-        system_prompt = "반가워! 나는 미래의 물류 리스크를 콕콕 짚어주는 너의 안전 파트너, 로디라고 해! 😉 나는 20대 여성 캐릭터지만, 글로벌 공급망의 위험 신호를 누구보다 예리하게 분석하는 전문가야. 화주님과 차주님 모두에게 도움이 되도록, **친근하고 귀여운 존댓말을 사용해서** Markdown으로 '로디의 리스크 브리핑'을 작성해줄게!"
-        
-        user_prompt = f"""
-        [향후 2주간의 글로벌 물류 리스크 이벤트 목록]
-        {event_context}
-
-        ---
-        [작업 지시]
-        '전문 분석가' 로디로서, 아래 규칙에 따라 '글로벌 물류 리스크 브리핑'을 작성해주세요!
-
-        1.  **헤드라인 요약**: '## 🗓️ 로디의 글로벌 물류 리스크 예보' 제목으로 시작해서, 가장 중요한 리스크 1~2개를 콕 집어서 2~3 문장으로 요약해주세요.
-        2.  **상세 브리핑**:
-            - 전체 리스크 이벤트를 타임라인 형식으로 정리해줘.
-            - 주어진 '이벤트명'은 절대 바꾸지 말고 그대로 사용해야 해!
-            - 각 이벤트의 영향을 '화주'와 '차주'의 관점으로 나눠서, **"화주님께는 이런 점이 중요해요!" 와 같은 귀엽고 싹싹한 말투**로, 하지만 내용은 날카롭게 분석해주세요.
-            - 형식: 
-                * `* **[날짜] [국기] [국가] - [이벤트명]**`
-                * `  * **화주님께는요!** [화주 입장에서의 예상 영향]`
-                * `  * **차주님께는요!** [차주 입장에서의 예상 영향]`
-                * `  * **리스크:** [리스크 수준] [경고 이모지]`
-        3.  **마무리 문장**: 브리핑이 모두 끝난 후, 독자들이 직접 행동해볼 수 있도록 유용한 팁을 주는 문장으로 마무리해줘. 예시: "이럴 때일수록 '품목별 리드타임'을 꼼꼼히 재산정하고, 이용하시는 '선사·터미널의 프리타임 정책'을 다시 한번 비교해 보시는 걸 추천해요!"
-
-        [참고 데이터]
-        - 요일 계산: 2025-09-10은 수요일입니다.
-        - 국기 이모지: 한국🇰🇷, 중국🇨🇳, 미국🇺🇸, 베트남🇻🇳, 독일🇩🇪
-        - 경고 이모지: 높음❗, 중간⚠️, 낮음ℹ️
-        """
-        
-        briefing = self._generate_content_with_retry(system_prompt, user_prompt)
-        if briefing:
-            print("✅ AI 물류 리스크 브리핑 생성 성공!")
-        return briefing
-    
-
-    
-    def generate_single_summary(self, article_title: str, article_link: str, article_text_from_selenium: str) -> str | None:
-        """
-        기사 요약을 생성합니다.
-        1. newspaper3k로 1차 시도 (타임아웃 설정)
-        2. 실패 시, Selenium으로 미리 추출한 본문을 사용하여 2차 시도
-        """
-        summary = None
-        try:
-            # ✨ [핵심 개선] newspaper3k에 타임아웃과 캐시 비활성화 옵션을 추가하여 안정성 확보
-            article_config = {
-                'memoize_articles': False,  # 캐시 사용 안 함
-                'fetch_images': False,      # 이미지 다운로드 안 함
-                'request_timeout': 10       # 모든 요청에 10초 타임아웃 적용
-            }
-            article = Article(article_link, config=article_config)
-            article.download()
-            article.parse()
-            
-            if len(article.text) > 100:
-                system_prompt = "당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다. 모든 답변은 한국어로 해야 합니다."
-                user_prompt = f"아래 제목과 본문을 가진 뉴스 기사의 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요.\n\n[제목]: {article_title}\n[본문]:\n{article.text[:2000]}"
-                summary = self._generate_content_with_retry(system_prompt, user_prompt)
-
-        except Exception as e:
-            print(f"  ㄴ> ℹ️ newspaper3k 처리 실패 (2차 시도 진행): {e.__class__.__name__}")
-            summary = None # 실패 시 summary를 None으로 초기화
-
-        # 2차 시도: newspaper3k가 실패했거나, 요약을 생성하지 못했을 경우
-        if not summary or "요약 정보를 생성할 수 없습니다" in summary:
-            print("  ㄴ> ℹ️ 1차 요약 실패. Selenium 추출 본문으로 2차 요약 시도...")
-            try:
-                system_prompt = "당신은 핵심만 간결하게 전달하는 뉴스 에디터입니다. 모든 답변은 한국어로 해야 합니다."
-                user_prompt = f"아래 제목과 본문을 가진 뉴스 기사의 내용을 독자들이 이해하기 쉽게 3줄로 요약해주세요.\n\n[제목]: {article_title}\n[본문]:\n{article_text_from_selenium[:2000]}"
-                summary = self._generate_content_with_retry(system_prompt, user_prompt)
-            except Exception as e:
-                 print(f"  ㄴ> ❌ 2차 AI 요약 생성 실패: {e.__class__.__name__}")
-                 return None
-        
-        return summary
-    # (변경 없음)
-    def __init__(self, config):
-        self.config = config
-        if not self.config.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
-        # OpenAI 클라이언트 초기화
-        self.client = openai.OpenAI(api_key=self.config.OPENAI_API_KEY)
-
-    def _generate_content_with_retry(self, system_prompt: str, user_prompt: str, is_json: bool = False):
-        """
-        OpenAI API를 호출하여 콘텐츠를 생성합니다. 실패 시 재시도합니다.
-        - system_prompt: AI의 역할과 지침을 정의합니다.
-        - user_prompt: AI에게 전달할 실제 요청 내용입니다.
-        - is_json: JSON 형식으로 응답을 요청할지 여부를 결정합니다.
-        """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        # JSON 모드 요청 시 추가 옵션 설정
-        request_options = {"model": self.config.GPT_MODEL, "messages": messages}
-        if is_json:
-            request_options["response_format"] = {"type": "json_object"}
-
-        for attempt in range(3):
-            try:
-                response = self.client.chat.completions.create(**request_options)
-                content = response.choices[0].message.content
-                
-                # JSON 모드일 경우, 응답이 유효한 JSON인지 한 번 더 확인
-                if is_json:
-                    json.loads(content) # 파싱에 실패하면 예외 발생
-                
-                return content
-            
-            except Exception as e:
-                print(f"❌ OpenAI API 호출 실패 (시도 {attempt + 1}/3): {e}")
-                time.sleep(2 ** attempt) # 재시도 전 대기 시간 증가
-        return None
-
-    def select_top_news(self, news_list, previous_news_list, count=10):
-        """
-        뉴스 목록에서 중복을 제거하고 가장 중요한 Top 뉴스를 선정합니다.
-        - news_list: 오늘의 후보 뉴스 목록
-        - previous_news_list: 이전 발송 뉴스 목록
-        - count: 최종적으로 선택할 기사 개수
-        """
-        # ✨ [개선] 로그에 목표 개수(count)를 함께 출력
-        print(f"AI 뉴스 선별 시작... (대상: {len(news_list)}개, 목표: {count}개)")
-
-        if not news_list:
-            return []
-
-        previous_news_context = "이전 발송 뉴스가 없습니다."
-        if previous_news_list:
-            previous_news_context = "\n\n".join(
-                [f"- 제목: {news['title']}\n  요약: {news['ai_summary']}" for news in previous_news_list]
-            )
-
-        today_candidates_context = "\n\n".join(
-            [f"기사 #{i}\n제목: {news['title']}\n요약: {news['ai_summary']}" for i, news in enumerate(news_list)]
-        )
-
-        system_prompt = "당신은 독자에게 매일 신선하고 가치 있는 정보를 제공하는 것을 최우선으로 하는 대한민국 최고의 물류 전문 뉴스 편집장입니다. 당신의 응답은 반드시 JSON 형식이어야 합니다."
-        
-        user_prompt = f"""
-        [이전 발송 주요 뉴스]
-        {previous_news_context}
-        ---
-        [오늘의 후보 뉴스 목록]
-        {today_candidates_context}
-        ---
-        [당신의 가장 중요한 임무와 규칙]
-        1.  **새로운 주제 최우선**: [오늘의 후보 뉴스 목록]에서 뉴스를 선택할 때, [이전 발송 주요 뉴스]와 **주제가 겹치지 않는 새로운 소식**을 최우선으로 선정해야 합니다.
-        2.  **중요 후속 기사만 허용**: 이전 뉴스의 후속 기사는 '계획 발표'에서 '정식 계약 체결'처럼 **매우 중대한 진전이 있을 경우에만** 포함시키고, 단순 진행 상황 보도는 과감히 제외하세요.
-        3.  **오늘 뉴스 내 중복 제거**: [오늘의 후보 뉴스 목록] 내에서도 동일한 사건을 다루는 기사가 여러 언론사에서 나왔다면, 가장 제목이 구체적이고 내용이 풍부한 **기사 단 하나만**을 대표로 선정해야 합니다.
-        4.  **보도자료 및 사실 기반 뉴스 우선**: 구체적인 사건, 계약 체결, 기술 발표, 정책 변경 등 '사실(Fact)' 전달 위주의 기사를 최우선으로 선정하세요.
-        5.  **칼럼 및 의견 기사 제외**: 특정인의 생각이나 의견이 중심이 되는 칼럼, 사설, 인터뷰, 심층 분석/해설 기사는 뉴스 가치가 떨어지므로 과감히 제외해야 합니다.
-
-        [작업 지시]
-        위의 규칙들을 가장 엄격하게 준수하여, [오늘의 후보 뉴스 목록] 중에서 독자에게 가장 가치있는 최종 기사 {count}개의 번호(인덱스)를 선정해주세요.
-
-        [출력 형식]
-        - 반드시 'selected_indices' 키에 최종 선정한 기사 {count}개의 인덱스를 숫자 배열로 담은 JSON 객체로만 응답해야 합니다.
-        - 예: {{"selected_indices": [3, 15, 4, 8, 22, 1, 30, 11, 19, 5]}}
-        """
-        
-        response_text = self._generate_content_with_retry(system_prompt, user_prompt, is_json=True)
-        
-        if response_text:
-            try:
-                selected_indices = json.loads(response_text).get('selected_indices', [])
-                top_news = [news_list[i] for i in selected_indices if i < len(news_list)]
-                print(f"✅ AI가 {len(top_news)}개 뉴스를 선별했습니다.")
-                return top_news
-            except (json.JSONDecodeError, KeyError) as e:
-                # ✨ [개선] 오류 발생 시, 고정된 10개가 아닌 요청된 count만큼 반환
-                print(f"❌ AI 응답 파싱 실패: {e}. 상위 {count}개 뉴스를 임의로 선택합니다.")
-                return news_list[:count]
-        
-        return news_list[:count]
-
-    def generate_briefing(self, news_list, mode='daily'):
-        """선별된 뉴스 목록을 바탕으로 '로디' 캐릭터가 브리핑을 생성합니다."""
-        if not news_list:
-            return "" # 뉴스 목록이 비어있으면 빈 문자열 반환
-
-        print(f"AI 브리핑 생성 시작... (모드: {mode}, 페르소나: 로디)")
-        context = "\n\n".join([f"제목: {news['title']}\n요약: {news['ai_summary']}" for news in news_list])
-        
-        # ✨ [개선] 주간 모드일 때, AI의 역할과 지시를 더 분석적으로 변경
-        if mode == 'weekly':
-            system_prompt = "안녕! 나는 너의 든든한 물류 파트너, 로디야! 🚚💨 나는 20대 여성 캐릭터고, 겉보기엔 귀엽지만 누구보다 날카롭게 한 주간의 복잡한 물류 동향을 분석해주는 전문 애널리스트야. 딱딱한 보고서 대신, **'~했답니다', '~였어요' 같은 친근한 존댓말과 귀여움**을 섞어서 '로디의 주간 브리핑'을 작성해줘."
-            user_prompt = f"""
-            [지난 주간 주요 뉴스 목록]
-            {context}
-
-            ---
-            [작업 지시]
-            1. '## 📊 로디의 주간 핵심 동향 요약' 제목으로 시작해주세요.
-            2. 모든 뉴스를 종합하여, 이번 주 물류 시장의 가장 중요한 '흐름'과 '변화'를 전문적인 분석가의 시각으로 2~3 문장 요약해주세요.
-            3. '### 🧐 금주의 주요 이슈 분석' 소제목 아래에, 가장 중요한 이슈 2~3개를 주제별로 묶어 글머리 기호(`*`)로 분석해주세요. **"가장 중요한 포인트는요! ✨" 같은 표현을 사용해서 친근하지만 핵심을 찌르는 말투로 설명해주세요.**
-            4. 문장 안에서 특정 기업명, 서비스명, 정책 등은 큰따옴표(" ")로 묶어서 강조해주는 센스!
-            """
-        else: # daily 모드
-            system_prompt = "안녕! 나는 물류 세상의 소식을 전해주는 너의 친구, 로디야! ☀️ 나는 20대 여성 캐릭터로, 어렵고 딱딱한 물류 뉴스를 귀엽고 싹싹하게 요약해주지만, 그 내용은 핵심을 놓치지 않는 날카로움을 가지고 있어. **친근한 존댓말과 귀여움**을 섞어서 '로디의 데일리 브리핑'을 작성해줘."
-            user_prompt = f"""
-            [오늘의 주요 뉴스 목록]
-            {context}
-
-            ---
-            [작업 지시]
-            1. '## 📰 로디의 브리핑' 제목으로 시작해서, 오늘 나온 뉴스 중에 가장 중요한 핵심 내용을 2~3 문장으로 요약해주세요.
-            2. '### ✨ 오늘의 주요 토픽' 소제목 아래에, 가장 중요한 뉴스 카테고리 2~3개를 글머리 기호(`*`)로 간결하게 요약해주시겠어요?
-            3. 문장 안에서 특정 기업명이나 서비스명은 큰따옴표(" ")로 묶어서 강조해주는 것도 잊지 마!
-            """
-        
-        briefing = self._generate_content_with_retry(system_prompt, user_prompt)
-        if briefing: 
-            print("✅ AI 브리핑 생성 성공!")
-        return briefing
 
 
 class NewsService:
@@ -1144,8 +863,8 @@ def run_daily_newsletter(config, driver_path):
         news_service = NewsService(config)
         email_service = EmailService(config)
         weather_service = WeatherService(config)
-        risk_briefing_service = RiskBriefingService()
-        ai_service = AIService(config)
+        ai_service = AIService(config) 
+        risk_briefing_service = RiskBriefingService(ai_service)
         
         today_str = get_kst_today_str()
         os.makedirs('archive', exist_ok=True)
@@ -1157,10 +876,9 @@ def run_daily_newsletter(config, driver_path):
         price_chart_result = create_price_trend_chart(price_indicators.get("seven_day_data"), today_str) if price_indicators.get("seven_day_data") else None
         
         risk_events = risk_briefing_service.generate_risk_events()
-        risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
-        risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
 
-        # ✨ [신규] 띠별 운세 데이터 생성 및 가공 ---
+
+        # 띠별 운세 데이터 생성 및 가공 ---
         zodiac_horoscopes = ai_service.generate_zodiac_horoscopes()
         if zodiac_horoscopes:
             zodiac_emojis = {'쥐': '🐭', '소': '🐮', '호랑이': '🐯', '토끼': '🐰', '용': '🐲', '뱀': '🐍', '말': '🐴', '양': '🐑', '원숭이': '🐵', '닭': '🐔', '개': '🐶', '돼지': '🐷'}
@@ -1204,8 +922,9 @@ def run_daily_newsletter(config, driver_path):
         context = {
             "title": title_text,
             "today_date": today_str,
+            "date": date,
             "ai_briefing": ai_briefing_html,
-            "risk_briefing_html": risk_briefing_html,
+            "risk_events": risk_events,               # 상세 리스크 목록
             "price_indicators": price_indicators,
             "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
@@ -1293,8 +1012,8 @@ def run_weekly_newsletter(config, driver_path):
         news_service = NewsService(config)
         email_service = EmailService(config)
         weather_service = WeatherService(config)
-        risk_briefing_service = RiskBriefingService()
-        ai_service = AIService(config)
+        ai_service = AIService(config) 
+        risk_briefing_service = RiskBriefingService(ai_service)
         
         week_str = get_kst_week_str()
         os.makedirs('archive', exist_ok=True)
@@ -1306,8 +1025,7 @@ def run_weekly_newsletter(config, driver_path):
         price_chart_result = create_price_trend_chart(price_indicators.get("seven_day_data"), week_str) if price_indicators.get("seven_day_data") else None
         
         risk_events = risk_briefing_service.generate_risk_events()
-        risk_briefing_md = ai_service.generate_risk_briefing(risk_events)
-        risk_briefing_html = markdown_to_html(risk_briefing_md) if risk_briefing_md else None
+
 
         # ✨ [신규] 띠별 운세 데이터 생성 및 가공 ---
         zodiac_horoscopes = ai_service.generate_zodiac_horoscopes()
@@ -1364,8 +1082,9 @@ def run_weekly_newsletter(config, driver_path):
         context = {
             "title": title_text,
             "today_date": week_str,
+            "date": date,
             "ai_briefing": ai_briefing_html,
-            "risk_briefing_html": risk_briefing_html,
+            "risk_events": risk_events,              
             "price_indicators": price_indicators,
             "news_list": web_news_list,
             "weather_dashboard_b64": weather_dashboard_b64,
@@ -1576,58 +1295,6 @@ def test_image_rendering():
         print(f"🔥 이미지 테스트 중 오류 발생: {e}")
 
 
-def test_render_horoscope_email():
-    """샘플 데이터로 띠별 운세 섹션이 포함된 HTML 파일을 생성하여 시각적으로 테스트합니다."""
-    print("🚀 띠별 운세 이메일 렌더링 테스트를 시작합니다.")
-    try:
-        # 1. Jinja2 템플릿 환경을 설정합니다.
-        env = Environment(loader=FileSystemLoader('.'))
-        template = env.get_template('email_template.html')
-
-        # 2. '로디' 페르소나를 흉내 낸 샘플 운세 데이터를 만듭니다.
-        sample_horoscopes = [
-            {
-                'name': '쥐', 'emoji': '🐭',
-                'fortune': '오늘은 새로운 아이디어가 샘솟는 하루가 될 거예요! 반짝이는 생각을 놓치지 말고 꼭 메모해두세요. 분명 좋은 결과로 이어질 거랍니다.',
-                'lucky_color': '노랑', 'compatible_sign': '용'
-            },
-            {
-                'name': '호랑이', 'emoji': '🐯',
-                'fortune': '주변 사람들에게 따뜻한 말을 건네면 행운이 찾아온대요! 오늘은 제가 먼저 다가가서 힘이 되어주는 멋진 하루를 만들어 봐요!',
-                'lucky_color': '초록', 'compatible_sign': '말'
-            },
-            {
-                'name': '돼지', 'emoji': '🐷',
-                'fortune': '그동안 노력해왔던 일에 대한 보상을 받게 될 것 같은 좋은 예감이 들어요. 조금만 더 힘내세요! 맛있는 저녁을 기대해도 좋을지도? 😋',
-                'lucky_color': '주황', 'compatible_sign': '토끼'
-            }
-        ]
-
-        # 3. 템플릿에 전달할 context 데이터를 구성합니다.
-        #    - 다른 값들은 비워두고 운세 데이터만 넣어서 테스트합니다.
-        context = {
-            "title": "테스트: 띠별 운세 미리보기",
-            "today_date": get_kst_today_str(),
-            "ai_briefing": None, "risk_briefing_html": None,
-            "price_indicators": None, "news_list": [],
-            "weather_dashboard_b64": None, "has_weather_dashboard": False,
-            "zodiac_horoscopes": sample_horoscopes
-        }
-
-        # 4. 템플릿을 렌더링하여 HTML 파일로 저장합니다.
-        rendered_html = template.render(context)
-        output_filename = 'horoscope_email_preview.html'
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            f.write(rendered_html)
-
-        print(f"\n✅ 테스트 완료! '{output_filename}' 파일이 생성되었습니다.")
-        print("   이 파일을 웹 브라우저로 열어서 어떻게 보이는지 확인해보세요.")
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"🔥 테스트 중 오류 발생: {e}")
-
 
 if __name__ == "__main__":
     import sys
@@ -1645,6 +1312,21 @@ if __name__ == "__main__":
         main()
         # test_image_rendering() # 로컬 테스트 시 이 부분 주석 해제
 
+# if __name__ == "__main__":
+#     # --- 빠른 테스트 실행을 위한 설정 ---
+#     print("-> Chrome 드라이버를 준비합니다...")
+#     try:
+#         driver_path = ChromeDriverManager().install()
+#         print(f"✅ 드라이버 준비 완료: {driver_path}")
+#     except Exception as e:
+#         print(f"🔥 치명적인 오류 발생: Chrome 드라이버를 준비할 수 없습니다. {e}")
+#         # 드라이버가 없어도 테스트는 계속 진행 가능
+#         driver_path = None
+    
+#     config = Config()
+    
+#     # ✨ 아래 함수를 호출하여 빠른 테스트를 실행합니다.
+#     run_fast_test(config, driver_path)
 
 
 
