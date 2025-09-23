@@ -14,10 +14,10 @@
         style="width: 100%; max-width: 720px; margin: 20px auto; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 6px;">
 
         <div style="width: 100%;">
-    <img src="{% if target == 'web' %}../assets/logicharacter.png{% else %}cid:newsletter_banner{% endif %}" 
-     alt="로디의 물류 뉴스레터 배너"
-     style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
-</div>
+            <img src="{% if target == 'web' %}../assets/logicharacter.png{% else %}cid:newsletter_banner{% endif %}"
+                alt="로디의 물류 뉴스레터 배너"
+                style="width: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; display: block;">
+        </div>
 
         <div style="padding: 24px; text-align: center; border-bottom: 1px solid #e1e4e8;">
             <h1 style="margin: 0; font-size: 24px; color: #6A9EDA;">{{ title }}</h1>
@@ -31,21 +31,33 @@
         </div>
         {% endif %}
 
-        {% if ai_briefing or risk_briefing_html %}
+        {% if ai_briefing %}
         <div style="padding: 24px; border-bottom: 1px solid #e1e4e8; background-color: #f6f8fa;">
-
-            {% if ai_briefing %}
             <div style="color: #444c56; line-height: 1.7; font-size: 14px;">
                 {{ ai_briefing | safe }}
             </div>
-            {% endif %}
+        </div>
+        {% endif %}
 
-            {% if risk_briefing_html %}
-            <div style="color: #444c56; line-height: 1.7; font-size: 14px;">
-                {{ risk_briefing_html | safe }}
+        {% if risk_events %} {# risk_calendar_html 대신 risk_events가 있는지 확인합니다. #}
+        <div style="padding: 24px; background-color: #f6f8fa;">
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #333; text-align: center;">🚨 주요 리스크 목록</h3>
+
+            {% for event in risk_events %}
+            {% if event.date_range[0] >= date.today() %}
+            <div
+                style="margin-bottom: 15px; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px;">
+                <p style="margin: 0 0 8px; font-weight: bold; color: #24292e;">
+                    • {{ event.name }}
+                    ({% if event.date_range[0] == event.date_range[1] %}{{ event.date_range[0].strftime('%m/%d') }}{%
+                    else %}{{ event.date_range[0].strftime('%m/%d') }}~{{ event.date_range[1].strftime('%m/%d') }}{%
+                    endif %})
+                </p>
+                <p style="margin: 0 0 10px; font-size: 14px; color: #444c56; line-height: 1.6;">{{ event.risk_summary }}
+                </p>
             </div>
             {% endif %}
-
+            {% endfor %}
         </div>
         {% endif %}
 
@@ -106,16 +118,13 @@
                             <td align="center">
                                 <a href="{{ news.link }}" target="_blank" style="text-decoration: none;">
                                     {% if news.image_src %}
-                                        <img src="{{ news.image_src }}" 
-                                             width="{{ news.image_final_width }}" 
-                                             alt="Article Thumbnail" 
-                                             style="display: block; max-width: 100%; height: auto; border: 0; border-radius: 6px;">
+                                    <img src="{{ news.image_src }}" width="{{ news.image_final_width }}"
+                                        alt="Article Thumbnail"
+                                        style="display: block; max-width: 100%; height: auto; border: 0; border-radius: 6px;">
                                     {% else %}
-                                        <img src="cid:{{ news.image_cid }}" 
-                                             width="{{ news.image_final_width }}" 
-                                             height="{{ news.image_final_height }}" 
-                                             alt="Article Thumbnail" 
-                                             style="display: block; max-width: 100%; height: auto; border: 0; border-radius: 6px;">
+                                    <img src="cid:{{ news.image_cid }}" width="{{ news.image_final_width }}"
+                                        height="{{ news.image_final_height }}" alt="Article Thumbnail"
+                                        style="display: block; max-width: 100%; height: auto; border: 0; border-radius: 6px;">
                                     {% endif %}
                                 </a>
                             </td>
@@ -138,39 +147,42 @@
                 </p>
 
                 {% if not loop.last %}
-                    <hr style="border: 0; border-top: 1px solid #e1e4e8; margin: 24px 0;">
+                <hr style="border: 0; border-top: 1px solid #e1e4e8; margin: 24px 0;">
                 {% endif %}
             </div>
             {% endfor %}
         </div>
 
         {% if zodiac_horoscopes %}
-<div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa;">
-    <h3 style="margin: 0 0 20px 0; font-size: 16px; color: #333; text-align: center;">오늘의 운세, 로디가 알려줄게요! 🔮</h3>
+        <div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa;">
+            <h3 style="margin: 0 0 20px 0; font-size: 16px; color: #333; text-align: center;">오늘의 운세, 로디가 알려줄게요! 🔮</h3>
 
-<p style="text-align: center; margin-bottom: 20px;">
-    <img src="{% if target == 'web' %}../assets/fortunechar.png{% else %}cid:fortunechar.png{% endif %}" 
-     alt="로디의 오늘의 운세" 
-     width="500" 
-     style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 8px;">
-</p>
+            <p style="text-align: center; margin-bottom: 20px;">
+                <img src="{% if target == 'web' %}../assets/fortunechar.png{% else %}cid:fortunechar.png{% endif %}"
+                    alt="로디의 오늘의 운세" width="500"
+                    style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 8px;">
+            </p>
 
-    {% for h in zodiac_horoscopes %}
-    <div style="margin-bottom: 15px; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px;">
-        <p style="margin: 0 0 10px; font-size: 16px; font-weight: bold; color: #24292e;">{{ h.emoji }} {{ h.name }}띠</p>
-        <p style="margin: 0; padding: 12px; background-color: #f6f8fa; border-radius: 6px; color: #444c56; line-height: 1.6; font-size: 14px;">
-            "{{ h.fortune }}"
-        </p>
-        <div style="margin: 12px 0 0; padding: 10px; background-color: #f6f8fa; border-radius: 6px; font-size: 13px; color: #586069; text-align: left;">
-            <p style="margin: 0 0 5px;">🍀 로디의 팁!</p>
-            <p style="margin: 0;">- 오늘의 미션: "{{ h.daily_mission }}"</p>
-            <p style="margin: 5px 0;">- 행운 아이템: "{{ h.lucky_item }}"</p>
-            <p style="margin: 5px 0 0;">- 행운 색상: "{{ h.lucky_color }}" / 찰떡궁합: "{{ h.compatible_sign }}"</p>
+            {% for h in zodiac_horoscopes %}
+            <div
+                style="margin-bottom: 15px; background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px;">
+                <p style="margin: 0 0 10px; font-size: 16px; font-weight: bold; color: #24292e;">{{ h.emoji }} {{ h.name
+                    }}띠</p>
+                <p
+                    style="margin: 0; padding: 12px; background-color: #f6f8fa; border-radius: 6px; color: #444c56; line-height: 1.6; font-size: 14px;">
+                    "{{ h.fortune }}"
+                </p>
+                <div
+                    style="margin: 12px 0 0; padding: 10px; background-color: #f6f8fa; border-radius: 6px; font-size: 13px; color: #586069; text-align: left;">
+                    <p style="margin: 0 0 5px;">🍀 로디의 팁!</p>
+                    <p style="margin: 0;">- 오늘의 미션: "{{ h.daily_mission }}"</p>
+                    <p style="margin: 5px 0;">- 행운 아이템: "{{ h.lucky_item }}"</p>
+                    <p style="margin: 5px 0 0;">- 행운 색상: "{{ h.lucky_color }}" / 찰떡궁합: "{{ h.compatible_sign }}"</p>
+                </div>
+            </div>
+            {% endfor %}
         </div>
-    </div>
-    {% endfor %}
-</div>
-{% endif %}
+        {% endif %}
 
 
         <div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa; text-align: center;">
@@ -197,4 +209,3 @@
 </body>
 
 </html>
-
