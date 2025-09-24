@@ -88,7 +88,7 @@ class Config:
     r'page=[0-9]+',      
     r'list\.html',        
     r'index\.html\?sid='  
-    
+    ]
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -129,6 +129,7 @@ class Config:
     # 분석 대상 국가 코드 (Python 'holidays' 라이브러리 기준)
     #RISK_BRIEFING_TARGET_COUNTRIES = ['KR', 'CN', 'US', 'VN', 'DE'] # 한국, 중국, 미국, 베트남, 독일
     RISK_BRIEFING_TARGET_COUNTRIES = ['KR'] 
+
 
 
 
