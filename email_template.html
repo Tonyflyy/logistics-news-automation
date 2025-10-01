@@ -154,37 +154,31 @@
         </div>
 
 {% if zodiac_horoscopes %}
-  <div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa;">
-      <h3 style="margin: 0 0 20px 0; font-size: 16px; color: #333; text-align: center;">오늘의 운세, 로디가 알려줄게요! 🔮</h3>
+<div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa;">
+    <h3 style="margin: 0 0 20px 0; font-size: 16px; color: #333; text-align: center;">오늘의 운세, 로디가 알려줄게요! 🔮</h3>
 
-      <p style="text-align: center; margin-bottom: 20px;">
-          <img src="{% if target == 'web' %}../assets/fortunechar.png{% else %}cid:fortunechar.png{% endif %}"
-              alt="로디의 오늘의 운세" width="500"
-              style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 8px;">
-      </p>
+    <p style="text-align: center; margin-bottom: 20px;">
+        <img src="{% if target == 'web' %}../assets/fortunechar.png{% else %}cid:fortunechar.png{% endif %}"
+             alt="로디의 오늘의 운세" width="500"
+             style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 8px;">
+    </p>
 
-      <div style="display: flex; flex-wrap: wrap; margin: 0 -5px;">
-          {% for h in zodiac_horoscopes %}
-          <div style="width: 50%; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column;">
-              <div style="background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; flex-grow: 1;">
-                  <p style="margin: 0 0 10px; font-size: 16px; font-weight: bold; color: #24292e;">{{ h.emoji }} {{ h.name }}띠</p>
-                  <p style="margin: 0; padding: 12px; background-color: #f6f8fa; border-radius: 6px; color: #444c56; line-height: 1.6;
-  font-size: 14px;">
-                      "{{ h.fortune }}"
-                  </p>
-                  <div style="margin: 12px 0 0; padding: 10px; background-color: #f6f8fa; border-radius: 6px; font-size: 13px; color: #586069;
-  text-align: left;">
-                      <p style="margin: 0 0 5px;">🍀 로디의 팁!</p>
-                      <p style="margin: 0;">- 미션: "{{ h.daily_mission }}"</p>
-                      <p style="margin: 5px 0;">- 아이템: "{{ h.lucky_item }}"</p>
-                      <p style="margin: 5px 0 0;">- 색상: "{{ h.lucky_color }}" / 궁합: "{{ h.compatible_sign }}"</p>
-                  </div>
-              </div>
-          </div>
-          {% endfor %}
-      </div>
-  </div>
-  {% endif %}
+    <div style="display: flex; flex-wrap: wrap; margin: 0 -5px;">
+        {% for h in zodiac_horoscopes %}
+        <div style="width: 50%; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column;">
+            <div
+                style="background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; flex-grow: 1;">
+                <p style="margin: 0 0 10px; font-size: 16px; font-weight: bold; color: #24292e;">{{ h.emoji }}
+                    {{ h.name }}띠</p>
+                <p style="margin: 0; padding: 12px; background-color: #f6f8fa; border-radius: 6px; color: #444c56; line-height: 1.6; font-size: 14px;">
+                    "{{ h.fortune }}"
+                </p>
+                </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 
         <div style="padding: 24px; border-top: 1px solid #e1e4e8; background-color: #f6f8fa; text-align: center;">
@@ -211,4 +205,5 @@
 </body>
 
 </html>
+
 
